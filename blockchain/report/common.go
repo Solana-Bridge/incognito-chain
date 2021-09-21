@@ -21,6 +21,7 @@ const (
 	TOTALTXS         = "totaltxs"
 	TOTALINS         = "totalins"
 	SIZE             = "blksize"
+	BLKHEIGHT        = "blkheight"
 	UPBSTATE         = "updatebeststate"
 	VBSTATE          = "verifybeststate"
 	VPOSPROC         = "validatepostprocessing"
@@ -43,6 +44,7 @@ const (
 var (
 	ColByFile = map[string][]string{
 		TIMESHARD_FILE: {
+			BLKHEIGHT,
 			VTXS,
 			VBLKSIG,
 			GETVIEW,

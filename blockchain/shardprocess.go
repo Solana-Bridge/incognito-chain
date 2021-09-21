@@ -301,7 +301,9 @@ func (blockchain *BlockChain) InsertShardBlock(shardBlock *types.ShardBlock, sho
 		len(shardBlock.Body.Transactions), len(shardBlock.Body.CrossTransactions), len(shardBlock.Body.Instructions))
 	e = time.Since(startTimeInsertShardBlock)
 	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.TOTAL, fmt.Sprintf("%v", e.Microseconds()))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.BLKHEIGHT, fmt.Sprintf("%v", shardBlock.Header.Height))
 	blockchain.reporter.WriteToFile(true, shardBlock.Header.Height, shardBlock.Header.Epoch, report.TIMESHARD_FILE)
+
 	return nil
 }
 

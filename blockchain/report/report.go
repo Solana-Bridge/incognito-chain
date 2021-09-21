@@ -20,8 +20,8 @@ type Reporter struct {
 func NewReporter() *Reporter {
 	return &Reporter{
 		FileType:          map[string]*os.File{},
-		LatestShardEpoch:  0,
-		LatestBeaconEpoch: 0,
+		LatestShardEpoch:  100000,
+		LatestBeaconEpoch: 100000,
 		Locker:            &sync.RWMutex{},
 		Data:              map[string]oneBlkData{},
 	}
@@ -56,6 +56,14 @@ func (r *Reporter) WriteToFile(isShard bool, blockHeight, epoch uint64, fileName
 		if err != nil {
 			panic(err)
 		}
+		w := csv.NewWriter(f)
+		if listKey, ok := ColByFile[fileName]; ok {
+			err = w.Write(listKey)
+			if err != nil {
+				panic(err)
+			}
+		}
+		w.Flush()
 		r.FileType[fileName] = f
 		if isShard {
 			r.LatestShardEpoch = epoch
