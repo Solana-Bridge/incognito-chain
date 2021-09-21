@@ -180,6 +180,7 @@ func (blockchain *BlockChain) InsertShardBlock(shardBlock *types.ShardBlock, sho
 	}
 	e = time.Since(st)
 	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.FETCHBLKSBC, fmt.Sprintf("%v", e.Microseconds()))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.TOTALBEACON, fmt.Sprintf("%v", len(beaconBlocks)))
 	committees := []incognitokey.CommitteePublicKey{}
 	if curView.shardCommitteeEngine.Version() == committeestate.SELF_SWAP_SHARD_VERSION ||
 		shardBlock.Header.CommitteeFromBlock.IsZeroValue() {
@@ -233,13 +234,15 @@ func (blockchain *BlockChain) InsertShardBlock(shardBlock *types.ShardBlock, sho
 	//only validate all tx if we have env variable FULL_VALIDATION = 1
 	if config.Config().IsFullValidation {
 		Logger.log.Infof("SHARD %+v | Verify Transaction From Block 🔍 %+v, total %v txs, block height %+v with hash %+v, beaconHash %+v", shardID, len(shardBlock.Body.Transactions), shardBlock.Header.Height, shardBlock.Hash().String(), shardBlock.Header.BeaconHash)
-		st := time.Now()
+		st = time.Now()
 		if err := blockchain.verifyTransactionFromNewBlock(shardID, shardBlock.Body.Transactions, curView.BestBeaconHash, curView); err != nil {
 			return NewBlockChainError(TransactionFromNewBlockError, err)
 		}
 		if len(shardBlock.Body.Transactions) > 0 {
 			Logger.log.Infof("SHARD %+v | Validate %v txs of block %v cost %v", shardID, len(shardBlock.Body.Transactions), shardBlock.GetHeight(), time.Since(st))
 		}
+		e = time.Since(st)
+		blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.VTXS, fmt.Sprintf("%v", e.Microseconds()))
 	}
 	st = time.Now()
 	newBestState, hashes, committeeChange, err := curView.updateShardBestState(blockchain, shardBlock, beaconBlocks, committees)
@@ -302,6 +305,9 @@ func (blockchain *BlockChain) InsertShardBlock(shardBlock *types.ShardBlock, sho
 	e = time.Since(startTimeInsertShardBlock)
 	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.TOTAL, fmt.Sprintf("%v", e.Microseconds()))
 	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.BLKHEIGHT, fmt.Sprintf("%v", shardBlock.Header.Height))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.EPOCH, fmt.Sprintf("%v", shardBlock.Header.Epoch))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.TOTALTXS, fmt.Sprintf("%v", len(shardBlock.Body.Transactions)))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.TOTALINS, fmt.Sprintf("%v", len(shardBlock.Body.Instructions)))
 	blockchain.reporter.WriteToFile(true, shardBlock.Header.Height, shardBlock.Header.Epoch, report.TIMESHARD_FILE)
 
 	return nil
