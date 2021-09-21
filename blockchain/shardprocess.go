@@ -5,10 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/incognitochain/incognito-chain/instruction"
 	"sort"
 	"strconv"
 	"time"
+
+	"github.com/incognitochain/incognito-chain/instruction"
 
 	"github.com/pkg/errors"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/incognitochain/incognito-chain/consensus_v2/consensustypes"
 
 	"github.com/incognitochain/incognito-chain/blockchain/committeestate"
+	"github.com/incognitochain/incognito-chain/blockchain/report"
 	"github.com/incognitochain/incognito-chain/blockchain/types"
 	"github.com/incognitochain/incognito-chain/common"
 	"github.com/incognitochain/incognito-chain/dataaccessobject/rawdbv2"
@@ -127,7 +129,7 @@ func (blockchain *BlockChain) VerifyPreSignShardBlock(
 // InsertShardBlock Insert Shard Block into blockchain
 // this block must have full information (complete block)
 func (blockchain *BlockChain) InsertShardBlock(shardBlock *types.ShardBlock, shouldValidate bool) error {
-	//startTimeInsertShardBlock := time.Now()
+	startTimeInsertShardBlock := time.Now()
 	blockHash := shardBlock.Header.Hash()
 	blockHeight := shardBlock.Header.Height
 	shardID := shardBlock.Header.ShardID
@@ -141,6 +143,7 @@ func (blockchain *BlockChain) InsertShardBlock(shardBlock *types.ShardBlock, sho
 	blockchain.ShardChain[int(shardID)].insertLock.Lock()
 	defer blockchain.ShardChain[int(shardID)].insertLock.Unlock()
 	//check if view is committed
+	st := time.Now()
 	checkView := blockchain.ShardChain[int(shardID)].GetViewByHash(blockHash)
 	if checkView != nil {
 		return nil
@@ -157,16 +160,17 @@ func (blockchain *BlockChain) InsertShardBlock(shardBlock *types.ShardBlock, sho
 		return NewBlockChainError(InsertShardBlockError, fmt.Errorf("ShardBlock %v link to wrong view (%s)", blockHeight, preHash.String()))
 	}
 	curView := preView.(*ShardBestState)
-
+	e := time.Since(st)
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.GETVIEW, fmt.Sprintf("%v", e.Microseconds()))
 	if blockHeight != curView.ShardHeight+1 {
 		return NewBlockChainError(InsertShardBlockError, fmt.Errorf("Not expected height, current view height %+v, incomming block height %+v", curView.ShardHeight, blockHeight))
 	}
 
-	if err := blockchain.verifyTransactionFromNewBlock(shardID, shardBlock.Body.Transactions, shardBlock.Header.BeaconHash, curView); err != nil {
-		Logger.log.Errorf("verifyTransactionFromNewBlock for block %v, shard %v error: %v\n", blockHeight, shardID, err)
-		return NewBlockChainError(TransactionFromNewBlockError, err)
-	}
-
+	// if err := blockchain.verifyTransactionFromNewBlock(shardID, shardBlock.Body.Transactions, shardBlock.Header.BeaconHash, curView); err != nil {
+	// 	Logger.log.Errorf("verifyTransactionFromNewBlock for block %v, shard %v error: %v\n", blockHeight, shardID, err)
+	// 	return NewBlockChainError(TransactionFromNewBlockError, err)
+	// }
+	st = time.Now()
 	// fetch beacon blocks
 	previousBeaconHeight := curView.BeaconHeight
 	beaconBlocks, err := FetchBeaconBlockFromHeight(blockchain, previousBeaconHeight+1, shardBlock.Header.BeaconHeight)
@@ -174,29 +178,40 @@ func (blockchain *BlockChain) InsertShardBlock(shardBlock *types.ShardBlock, sho
 
 		return NewBlockChainError(FetchBeaconBlocksError, err)
 	}
-
+	e = time.Since(st)
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.FETCHBLKSBC, fmt.Sprintf("%v", e.Microseconds()))
 	committees := []incognitokey.CommitteePublicKey{}
 	if curView.shardCommitteeEngine.Version() == committeestate.SELF_SWAP_SHARD_VERSION ||
 		shardBlock.Header.CommitteeFromBlock.IsZeroValue() {
+		st = time.Now()
 		committees = curView.GetShardCommittee()
+		e = time.Since(st)
+		blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.GETCOMMITTEE1, fmt.Sprintf("%v", e.Microseconds()))
 	} else {
+		st = time.Now()
 		committees, err = blockchain.GetShardCommitteeFromBeaconHash(shardBlock.Header.CommitteeFromBlock, shardID)
 		if err != nil {
 			return err
 		}
+		e = time.Since(st)
+		blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.GETCOMMITTEE2, fmt.Sprintf("%v", e.Microseconds()))
 	}
-
+	st = time.Now()
 	if err := blockchain.config.ConsensusEngine.ValidateBlockCommitteSig(shardBlock, committees); err != nil {
 		committeesStr, _ := incognitokey.CommitteeKeyListToString(committees)
 		Logger.log.Errorf("Validate block %v shard %v with committee %v committeeFromBlock %v return error %v", shardBlock.GetHeight(), shardBlock.GetShardID(), committeesStr, shardBlock.Header.CommitteeFromBlock.String(), err)
 		return err
 	}
-
+	e = time.Since(st)
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.VBLKSIG, fmt.Sprintf("%v", e.Microseconds()))
 	if shouldValidate {
 		Logger.log.Infof("SHARD %+v | Verify Pre Processing, block height %+v with hash %+v", shardID, blockHeight, blockHash)
+		st = time.Now()
 		if err := blockchain.verifyPreProcessingShardBlock(curView, shardBlock, beaconBlocks, shardID, false, committees); err != nil {
 			return err
 		}
+		e = time.Since(st)
+		blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.VPREPROC, fmt.Sprintf("%v", e.Microseconds()))
 	} else {
 		Logger.log.Infof("SHARD %+v | SKIP Verify Pre Processing, block height %+v with hash %+v", shardID, blockHeight, blockHash)
 	}
@@ -204,9 +219,12 @@ func (blockchain *BlockChain) InsertShardBlock(shardBlock *types.ShardBlock, sho
 	if shouldValidate {
 		// Verify block with previous best state
 		Logger.log.Infof("SHARD %+v | Verify BestState With Shard Block, block height %+v with hash %+v", shardBlock.Header.ShardID, shardBlock.Header.Height, blockHash)
+		st = time.Now()
 		if err := curView.verifyBestStateWithShardBlock(blockchain, shardBlock, committees); err != nil {
 			return err
 		}
+		e = time.Since(st)
+		blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.VBSTATE, fmt.Sprintf("%v", e.Microseconds()))
 	} else {
 		Logger.log.Debugf("SHARD %+v | SKIP Verify Best State With Shard Block, Shard Block Height %+v with hash %+v", shardBlock.Header.ShardID, shardBlock.Header.Height, blockHash)
 	}
@@ -223,11 +241,13 @@ func (blockchain *BlockChain) InsertShardBlock(shardBlock *types.ShardBlock, sho
 			Logger.log.Infof("SHARD %+v | Validate %v txs of block %v cost %v", shardID, len(shardBlock.Body.Transactions), shardBlock.GetHeight(), time.Since(st))
 		}
 	}
-
+	st = time.Now()
 	newBestState, hashes, committeeChange, err := curView.updateShardBestState(blockchain, shardBlock, beaconBlocks, committees)
 	if err != nil {
 		return err
 	}
+	e = time.Since(st)
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.UPBSTATE, fmt.Sprintf("%v", e.Microseconds()))
 	var err2 error
 	defer func() {
 		if err2 != nil {
@@ -238,19 +258,24 @@ func (blockchain *BlockChain) InsertShardBlock(shardBlock *types.ShardBlock, sho
 	//========Post verification: verify new beaconstate with corresponding block
 	if shouldValidate {
 		Logger.log.Debugf("SHARD %+v | Verify Post Processing, block height %+v with hash %+v", shardBlock.Header.ShardID, shardBlock.Header.Height, blockHash)
+		st = time.Now()
 		if err2 = newBestState.verifyPostProcessingShardBlock(shardBlock, shardID, hashes); err2 != nil {
 			return err2
 		}
+		e = time.Since(st)
+		blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.VPOSPROC, fmt.Sprintf("%v", e.Microseconds()))
 	} else {
 		Logger.log.Infof("SHARD %+v | SKIP Verify Post Processing, block height %+v with hash %+v \n", shardID, blockHeight, blockHash)
 	}
 
 	Logger.log.Infof("SHARD %+v | Update Beacon Instruction, block height %+v with hash %+v \n", shardID, blockHeight, blockHash)
+	st = time.Now()
 	err2 = blockchain.processSalaryInstructions(newBestState.rewardStateDB, beaconBlocks, newBestState.BeaconHeight, shardID)
 	if err2 != nil {
 		return err2
 	}
-
+	e = time.Since(st)
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.PROCSAL, fmt.Sprintf("%v", e.Microseconds()))
 	Logger.log.Infof("SHARD %+v | Update Committee State Block Height %+v with hash %+v",
 		newBestState.ShardID, shardBlock.Header.Height, blockHash)
 	if err2 = newBestState.shardCommitteeEngine.Commit(hashes); err2 != nil {
@@ -258,11 +283,13 @@ func (blockchain *BlockChain) InsertShardBlock(shardBlock *types.ShardBlock, sho
 	}
 
 	Logger.log.Infof("SHARD %+v | Store New Shard Block And Update Data, block height %+v with hash %+v \n", shardID, blockHeight, blockHash)
+	st = time.Now()
 	err2 = blockchain.processStoreShardBlock(newBestState, shardBlock, committeeChange, beaconBlocks)
 	if err2 != nil {
 		return err2
 	}
-
+	e = time.Since(st)
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.PROSTORE, fmt.Sprintf("%v", e.Microseconds()))
 	blockchain.removeOldDataAfterProcessingShardBlock(shardBlock, shardID)
 	go blockchain.config.PubSubManager.PublishMessage(pubsub.NewMessage(pubsub.NewShardblockTopic, shardBlock))
 	go blockchain.config.PubSubManager.PublishMessage(pubsub.NewMessage(pubsub.ShardBeststateTopic, newBestState))
@@ -272,6 +299,9 @@ func (blockchain *BlockChain) InsertShardBlock(shardBlock *types.ShardBlock, sho
 		"%+v instruction",
 		shardBlock.Header.ShardID, shardBlock.Header.Height, blockHash,
 		len(shardBlock.Body.Transactions), len(shardBlock.Body.CrossTransactions), len(shardBlock.Body.Instructions))
+	e = time.Since(startTimeInsertShardBlock)
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.TOTAL, fmt.Sprintf("%v", e.Microseconds()))
+	blockchain.reporter.WriteToFile(true, shardBlock.Header.Height, shardBlock.Header.Epoch, report.TIMESHARD_FILE)
 	return nil
 }
 
@@ -326,18 +356,23 @@ func (blockchain *BlockChain) verifyPreProcessingShardBlock(curView *ShardBestSt
 	if shardBlock.Header.Height > curView.ShardHeight+1 {
 		return NewBlockChainError(WrongBlockHeightError, fmt.Errorf("Expect shardBlock height %+v but get %+v", curView.ShardHeight+1, shardBlock.Header.Height))
 	}
+	st := time.Now()
 	// Verify parent hash exist or not
 	previousBlockHash := shardBlock.Header.PreviousBlockHash
 	previousShardBlockData, err := rawdbv2.GetShardBlockByHash(blockchain.GetShardChainDatabase(shardID), previousBlockHash)
 	if err != nil {
 		return NewBlockChainError(FetchPreviousBlockError, err)
 	}
-
+	e := time.Since(st)
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.VPREPROCGETBLKS, fmt.Sprintf("%v", e.Microseconds()))
+	st = time.Now()
 	previousShardBlock := types.ShardBlock{}
 	err = json.Unmarshal(previousShardBlockData, &previousShardBlock)
 	if err != nil {
 		return NewBlockChainError(UnmashallJsonShardBlockError, err)
 	}
+	e = time.Since(st)
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.VPREPROCUNMBLKS, fmt.Sprintf("%v", e.Microseconds()))
 	// Verify shardBlock height with parent shardBlock
 	if previousShardBlock.Header.Height+1 != shardBlock.Header.Height {
 		return NewBlockChainError(WrongBlockHeightError, fmt.Errorf("Expect receive shardBlock height %+v but get %+v", previousShardBlock.Header.Height+1, shardBlock.Header.Height))
@@ -352,6 +387,7 @@ func (blockchain *BlockChain) verifyPreProcessingShardBlock(curView *ShardBestSt
 	}
 
 	// Verify transaction root
+	st = time.Now()
 	txMerkleTree := types.Merkle{}.BuildMerkleTreeStore(shardBlock.Body.Transactions)
 	txRoot := &common.Hash{}
 	if len(txMerkleTree) > 0 {
@@ -372,13 +408,17 @@ func (blockchain *BlockChain) verifyPreProcessingShardBlock(curView *ShardBestSt
 	if !VerifyMerkleCrossTransaction(shardBlock.Body.CrossTransactions, shardBlock.Header.CrossTransactionRoot) {
 		return NewBlockChainError(CrossShardTransactionRootHashError, fmt.Errorf("Expect cross shard transaction root hash %+v", shardBlock.Header.CrossTransactionRoot))
 	}
+	e = time.Since(st)
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.VPREPROCMERKLE, fmt.Sprintf("%v", e.Microseconds()))
 	// Verify Action
+	st = time.Now()
 	txInstructions, err := CreateShardInstructionsFromTransactionAndInstruction(shardBlock.Body.Transactions, blockchain, shardID, shardBlock.Header.Height)
 	if err != nil {
 		Logger.log.Error(err)
 		return NewBlockChainError(ShardIntructionFromTransactionAndInstructionError, err)
 	}
-
+	e = time.Since(st)
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.VPREPROCCREINS, fmt.Sprintf("%v", e.Microseconds()))
 	if !isPreSign {
 		totalInstructions := []string{}
 		for _, value := range txInstructions {
@@ -391,9 +431,8 @@ func (blockchain *BlockChain) verifyPreProcessingShardBlock(curView *ShardBestSt
 			return NewBlockChainError(InstructionsHashError, fmt.Errorf("Expect instruction hash to be %+v but get %+v at block %+v hash %+v", shardBlock.Header.InstructionsRoot, hash, shardBlock.Header.Height, shardBlock.Hash().String()))
 		}
 	}
-
+	st = time.Now()
 	totalTxsFee := curView.shardCommitteeEngine.BuildTotalTxsFeeFromTxs(shardBlock.Body.Transactions)
-
 	tokenIDsfromTxs := make([]common.Hash, 0)
 	for tokenID := range totalTxsFee {
 		tokenIDsfromTxs = append(tokenIDsfromTxs, tokenID)
@@ -421,6 +460,8 @@ func (blockchain *BlockChain) verifyPreProcessingShardBlock(curView *ShardBestSt
 			return NewBlockChainError(WrongBlockTotalFeeError, fmt.Errorf("Expect Total Fee to be equal, From Txs %+v, From Block Header %+v", totalTxsFee[tokenID], shardBlock.Header.TotalTxsFee[tokenID]))
 		}
 	}
+	e = time.Since(st)
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.VPREPROCGETFEE, fmt.Sprintf("%v", e.Microseconds()))
 	// Verify Cross Shards
 	crossShards, err := CreateCrossShardByteArray(shardBlock.Body.Transactions, shardID)
 	if err != nil {
@@ -450,11 +491,13 @@ func (blockchain *BlockChain) verifyPreProcessingShardBlock(curView *ShardBestSt
 	}
 	//Get beacon hash by height in db
 	//If hash not found then fail to verify
+	st = time.Now()
 	beaconHash, err := rawdbv2.GetFinalizedBeaconBlockHashByIndex(blockchain.GetBeaconChainDatabase(), shardBlock.Header.BeaconHeight)
 	if err != nil {
 		return NewBlockChainError(FetchBeaconBlockHashError, err)
 	}
-
+	e = time.Since(st)
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.VPREGETFBLKS, fmt.Sprintf("%v", e.Microseconds()))
 	//Hash in db must be equal to hash in shard shardBlock
 	newHash, err := common.Hash{}.NewHash(shardBlock.Header.BeaconHash.GetBytes())
 	if err != nil {
@@ -471,6 +514,7 @@ func (blockchain *BlockChain) verifyPreProcessingShardBlock(curView *ShardBestSt
 	for _, beaconBlock := range beaconBlocks {
 		instsForValidations = append(instsForValidations, beaconBlock.Body.Instructions...)
 	}
+	st = time.Now()
 	invalidTxs, err := blockchain.verifyMinerCreatedTxBeforeGettingInBlock(instsForValidations, shardBlock.Body.Transactions, shardID)
 	if err != nil {
 		return NewBlockChainError(TransactionCreatedByMinerError, err)
@@ -478,14 +522,22 @@ func (blockchain *BlockChain) verifyPreProcessingShardBlock(curView *ShardBestSt
 	if len(invalidTxs) > 0 {
 		return NewBlockChainError(TransactionCreatedByMinerError, fmt.Errorf("There are %d invalid txs", len(invalidTxs)))
 	}
+	e = time.Since(st)
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.VPREVMINERTXS, fmt.Sprintf("%v", e.Microseconds()))
+	st = time.Now()
 	err = blockchain.ValidateResponseTransactionFromTxsWithMetadata(shardBlock)
 	if err != nil {
 		return NewBlockChainError(ResponsedTransactionWithMetadataError, err)
 	}
+	e = time.Since(st)
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.VPREVRESPTXSMETA, fmt.Sprintf("%v", e.Microseconds()))
+	st = time.Now()
 	err = blockchain.ValidateResponseTransactionFromBeaconInstructions(curView, shardBlock, beaconBlocks, shardID)
 	if err != nil {
 		return NewBlockChainError(ResponsedTransactionWithMetadataError, err)
 	}
+	e = time.Since(st)
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.VPREVRESPTXSINS, fmt.Sprintf("%v", e.Microseconds()))
 	shardVerifyPreprocesingTimer.UpdateSince(startTimeVerifyPreProcessingShardBlock)
 	// Get cross shard shardBlock from pool
 	if isPreSign {

@@ -10,13 +10,14 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/incognitochain/incognito-chain/transaction/coin_indexer"
+	coinIndexer "github.com/incognitochain/incognito-chain/transaction/coin_indexer"
 
 	"github.com/incognitochain/incognito-chain/blockchain/signaturecounter"
 	"github.com/incognitochain/incognito-chain/config"
 
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/incognitochain/incognito-chain/blockchain/committeestate"
+	"github.com/incognitochain/incognito-chain/blockchain/report"
 	"github.com/incognitochain/incognito-chain/blockchain/types"
 	"github.com/incognitochain/incognito-chain/common"
 	configpkg "github.com/incognitochain/incognito-chain/config"
@@ -45,6 +46,7 @@ type BlockChain struct {
 	beaconViewCache *lru.Cache
 
 	committeeByEpochCache *lru.Cache
+	reporter              *report.Reporter
 }
 
 // Config is a descriptor which specifies the blockchain instblockchain/beaconstatefulinsts.goance configuration.
@@ -99,6 +101,7 @@ func (blockchain *BlockChain) Init(config *Config) error {
 	blockchain.IsTest = false
 	blockchain.beaconViewCache, _ = lru.New(100)
 	blockchain.committeeByEpochCache, _ = lru.New(100)
+	blockchain.reporter = report.NewReporter()
 	// Initialize the chain state from the passed database.  When the db
 	// does not yet contain any chain state, both it and the chain state
 	// will be initialized to contain only the genesis block.
