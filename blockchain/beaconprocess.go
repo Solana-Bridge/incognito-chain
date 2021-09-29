@@ -172,6 +172,9 @@ func (blockchain *BlockChain) InsertBeaconBlock(beaconBlock *types.BeaconBlock, 
 	blockchain.reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.BLKHEIGHT, fmt.Sprintf("%v", beaconBlock.GetHeight()))
 	blockchain.reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.EPOCH, fmt.Sprintf("%v", beaconBlock.GetCurrentEpoch()))
 
+	blockchain.reporter.RecordData(beaconBlock.GetHeight(), report.TIMEBEACON_FILE, report.BLKHEIGHT, fmt.Sprintf("%v", beaconBlock.GetHeight()))
+	blockchain.reporter.RecordData(beaconBlock.GetHeight(), report.TIMEBEACON_FILE, report.EPOCH, fmt.Sprintf("%v", beaconBlock.GetCurrentEpoch()))
+
 	// Update best state with new beaconBlock
 	newBestState, hashes, committeeChange, _, err := curView.updateBeaconBestState(beaconBlock, blockchain)
 	if err != nil {
@@ -192,6 +195,7 @@ func (blockchain *BlockChain) InsertBeaconBlock(beaconBlock *types.BeaconBlock, 
 		return err2
 	}
 	blockchain.reporter.WriteToFile(false, beaconBlock.GetHeight(), beaconBlock.GetCurrentEpoch(), report.DATABEACON_FILE)
+	blockchain.reporter.WriteToFile(false, beaconBlock.GetHeight(), beaconBlock.GetCurrentEpoch(), report.TIMEBEACON_FILE)
 	Logger.log.Infof("BEACON | Finish Insert new Beacon Block %+v, with hash %+v", beaconBlock.Header.Height, *beaconBlock.Hash())
 	if beaconBlock.Header.Height%50 == 0 {
 		BLogger.log.Debugf("Inserted beacon height: %d", beaconBlock.Header.Height)
@@ -816,6 +820,7 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 
 	//statedb===========================START
 	// Added
+	st := time.Now()
 	err = newBestState.storeCommitteeStateWithCurrentState(committeeChange)
 	if err != nil {
 		return err
@@ -901,8 +906,11 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	if err != nil {
 		return err
 	}
+	e := time.Since(st)
+	reporter.RecordData(beaconBlock.GetHeight(), report.TIMEBEACON_FILE, report.PROCSTORCONSENSUSTIME, fmt.Sprintf("%v", e.Microseconds()))
 	// Remove shard reward request of old epoch
 	// this value is no longer needed because, old epoch reward has been split and send to shard
+	st = time.Now()
 	if blockchain.IsFirstBeaconHeightInEpoch(beaconBlock.Header.Height) {
 		err = statedb.StoreSlashingCommittee(newBestState.slashStateDB, beaconBlock.Header.Epoch-1, committeeChange.SlashingCommittee)
 		if err != nil {
@@ -910,20 +918,30 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 		}
 		Logger.log.Infof("Store Slashing Committee, %+v", committeeChange.SlashingCommittee)
 	}
+	e = time.Since(st)
+	reporter.RecordData(beaconBlock.GetHeight(), report.TIMEBEACON_FILE, report.PROCSTORSLASINGTIME, fmt.Sprintf("%v", e.Microseconds()))
+	st = time.Now()
 	err = blockchain.addShardRewardRequestToBeacon(beaconBlock, newBestState.rewardStateDB)
 	if err != nil {
 		return NewBlockChainError(UpdateDatabaseWithBlockRewardInfoError, err)
 	}
-
+	e = time.Since(st)
+	reporter.RecordData(beaconBlock.GetHeight(), report.TIMEBEACON_FILE, report.PROCSTORREWARDTIME, fmt.Sprintf("%v", e.Microseconds()))
 	// execute, store
+	st = time.Now()
 	err = blockchain.processBridgeInstructions(newBestState.featureStateDB, beaconBlock)
 	if err != nil {
 		return NewBlockChainError(ProcessBridgeInstructionError, err)
 	}
-
+	e = time.Since(st)
+	reporter.RecordData(beaconBlock.GetHeight(), report.TIMEBEACON_FILE, report.PROCSTORFEATUREBRIDGETIME, fmt.Sprintf("%v", e.Microseconds()))
 	// execute, store token init instructions
+	st = time.Now()
 	blockchain.processTokenInitInstructions(newBestState.featureStateDB, beaconBlock)
+	e = time.Since(st)
+	reporter.RecordData(beaconBlock.GetHeight(), report.TIMEBEACON_FILE, report.PROCSTORFEATURETOKENTIME, fmt.Sprintf("%v", e.Microseconds()))
 	// execute, store PDE instruction
+	st = time.Now()
 	newBestState.pdeState, err = blockchain.processPDEInstructions(newBestState, beaconBlock)
 	if err != nil {
 		Logger.log.Error(err)
@@ -944,7 +962,9 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 		//for legacy logic prefix-currentbeaconheight-tokenid1-tokenid2
 		newBestState.pdeState = newBestState.pdeState.transformKeyWithNewBeaconHeight(beaconBlock.Header.Height)
 	}
-
+	e = time.Since(st)
+	reporter.RecordData(beaconBlock.GetHeight(), report.TIMEBEACON_FILE, report.PROCSTORFEATUREPDETIME, fmt.Sprintf("%v", e.Microseconds()))
+	st = time.Now()
 	// Save result of BurningConfirm instruction to get proof later
 	metas := []string{ // Burning v2: sig on beacon only
 		strconv.Itoa(metadata.BurningConfirmMetaV2),
@@ -977,11 +997,13 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 			}
 		}
 	}
-
+	e = time.Since(st)
+	reporter.RecordData(beaconBlock.GetHeight(), report.TIMEBEACON_FILE, report.PROCSTORFEATUREPORTALTIME, fmt.Sprintf("%v", e.Microseconds()))
 	//store beacon block hash by index to consensus state db => mark this block hash is for this view at this height
 	//if err := statedb.StoreBeaconBlockHashByIndex(newBestState.consensusStateDB, blockHeight, blockHash); err != nil {
 	//	return err
 	//}
+	st = time.Now()
 	totalIncrease := uint64(0)
 	// stS, _ := DirSize(dbPath)
 	consensusRootHash, err := newBestState.consensusStateDB.Commit(true)
@@ -992,12 +1014,15 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	if err != nil {
 		return err
 	}
+	e = time.Since(st)
+	reporter.RecordData(beaconBlock.GetHeight(), report.TIMEBEACON_FILE, report.PROCSTORCONSENSUSWTIME, fmt.Sprintf("%v", e.Microseconds()))
 	totalIncrease += sizenew
 	// eS, _ := DirSize(dbPath)
 	// s := eS - stS
 	// stS = eS
 	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.CONSENSUSSIZE, fmt.Sprintf("%v", sizenew))
 	newBestState.ConsensusStateDBRootHash = consensusRootHash
+	st = time.Now()
 	featureRootHash, err := newBestState.featureStateDB.Commit(true)
 	if err != nil {
 		return err
@@ -1007,10 +1032,13 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 		return err
 	}
 	totalIncrease += sizenew
+	e = time.Since(st)
+	reporter.RecordData(beaconBlock.GetHeight(), report.TIMEBEACON_FILE, report.PROCSTORFEATUREWTIME, fmt.Sprintf("%v", e.Microseconds()))
 	// eS, _ = DirSize(dbPath)
 	// s = eS - stS
 	// stS = eS
 	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.FEATURESIZE, fmt.Sprintf("%v", sizenew))
+	st = time.Now()
 	newBestState.FeatureStateDBRootHash = featureRootHash
 	rewardRootHash, err := newBestState.rewardStateDB.Commit(true)
 	if err != nil {
@@ -1020,11 +1048,14 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	if err != nil {
 		return err
 	}
+	e = time.Since(st)
+	reporter.RecordData(beaconBlock.GetHeight(), report.TIMEBEACON_FILE, report.PROCSTORREWARDWTIME, fmt.Sprintf("%v", e.Microseconds()))
 	totalIncrease += sizenew
 	// eS, _ = DirSize(dbPath)
 	// s = eS - stS
 	// stS = eS
 	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.REWARDSIZE, fmt.Sprintf("%v", sizenew))
+	st = time.Now()
 	newBestState.RewardStateDBRootHash = rewardRootHash
 	slashRootHash, err := newBestState.slashStateDB.Commit(true)
 	if err != nil {
@@ -1034,6 +1065,8 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	if err != nil {
 		return err
 	}
+	e = time.Since(st)
+	reporter.RecordData(beaconBlock.GetHeight(), report.TIMEBEACON_FILE, report.PROCSTORSLASINGWTIME, fmt.Sprintf("%v", e.Microseconds()))
 	totalIncrease += sizenew
 	// eS, _ = DirSize(dbPath)
 	// s = eS - stS
@@ -1054,19 +1087,24 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 		RewardStateDBRootHash:    rewardRootHash,
 		SlashStateDBRootHash:     slashRootHash,
 	}
-
+	st = time.Now()
 	if sizenew, err = rawdbv2.StoreBeaconRootsHash(beaconDB, blockHash, bRH); err != nil {
 		return NewBlockChainError(StoreShardBlockError, err)
 	}
 	totalIncrease += sizenew
+	e = time.Since(st)
+	reporter.RecordData(beaconBlock.GetHeight(), report.TIMEBEACON_FILE, report.STOREROOTHASHTIME, fmt.Sprintf("%v", e.Microseconds()))
 	// eS, _ = DirSize(dbPath)
 	// s = eS - stS
 	// stS = eS
 	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.STOREROOTHASH, fmt.Sprintf("%v", sizenew))
+	st = time.Now()
 	if sizenew, err = rawdbv2.StoreBeaconBlockByHash(beaconDB, blockHash, beaconBlock); err != nil {
 		return NewBlockChainError(StoreBeaconBlockError, err)
 	}
 	totalIncrease += sizenew
+	e = time.Since(st)
+	reporter.RecordData(beaconBlock.GetHeight(), report.TIMEBEACON_FILE, report.STOREBLKBYHASHTIME, fmt.Sprintf("%v", e.Microseconds()))
 	// eS, _ = DirSize(dbPath)
 	// s = eS - stS
 	// stS = eS
@@ -1085,6 +1123,7 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	finalizedBlocks := []*types.BeaconBlock{}
 
 	sizenew = 0
+	st = time.Now()
 	for finalView == nil || storeBlock.GetHeight() > finalView.GetHeight() {
 		finalSize, err := rawdbv2.StoreFinalizedBeaconBlockHashByIndex(beaconDB, storeBlock.GetHeight(), *storeBlock.Hash())
 		sizenew += finalSize
@@ -1108,11 +1147,14 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 		}
 	}
 	totalIncrease += sizenew
+	e = time.Since(st)
+	reporter.RecordData(beaconBlock.GetHeight(), report.TIMEBEACON_FILE, report.STOREFINALHASHTIME, fmt.Sprintf("%v", e.Microseconds()))
 	// eS, _ = DirSize(dbPath)
 	// s = eS - stS
 	// stS = eS
-	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.STOREFINALHASH, fmt.Sprintf("%v", totalIncrease))
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.STOREFINALHASH, fmt.Sprintf("%v", sizenew))
 	sizenew = 0
+	st = time.Now()
 	for i := len(finalizedBlocks) - 1; i >= 0; i-- {
 		Logger.log.Debug("process beacon block", finalizedBlocks[i].Header.Height)
 		xShardSize, err := processBeaconForConfirmmingCrossShard(blockchain, finalizedBlocks[i], newBestState.LastCrossShardState)
@@ -1122,18 +1164,24 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 		sizenew += xShardSize
 	}
 	totalIncrease += sizenew
+	e = time.Since(st)
+	reporter.RecordData(beaconBlock.GetHeight(), report.TIMEBEACON_FILE, report.STORECROSSSHARDTIME, fmt.Sprintf("%v", e.Microseconds()))
 	// eS, _ = DirSize(dbPath)
 	// s = eS - stS
 	// stS = eS
 	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.STORECROSSSHARD, fmt.Sprintf("%v", sizenew))
-	sizenew, err = blockchain.BackupBeaconViews(beaconDB)
+	st = time.Now()
+	sizeBackup, err := blockchain.BackupBeaconViews(beaconDB)
 	if err != nil {
 		return err
 	}
-	totalIncrease += sizenew
+	e = time.Since(st)
+	reporter.RecordData(beaconBlock.GetHeight(), report.TIMEBEACON_FILE, report.BACKUPVIEWTIME, fmt.Sprintf("%v", e.Microseconds()))
+	totaldatawrite := totalIncrease + sizeBackup
 	// eS, _ = DirSize(dbPath)
 	// s = eS - stS
-	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.BACKUPVIEW, fmt.Sprintf("%v", sizenew))
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.BACKUPVIEW, fmt.Sprintf("%v", sizeBackup))
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.TOTALDATAWRITE, fmt.Sprintf("%v", totaldatawrite))
 	// if err := batch.Write(); err != nil {
 	// 	return NewBlockChainError(StoreBeaconBlockError, err)
 	// }
@@ -1144,6 +1192,9 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	beaconBytes, _ := json.Marshal(beaconBlock)
 	blkSize := len(beaconBytes)
 	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.BLKSIZE, fmt.Sprintf("%v", blkSize))
+	e = time.Since(startTimeProcessStoreBeaconBlock)
+
+	reporter.RecordData(beaconBlock.GetHeight(), report.TIMEBEACON_FILE, report.PROSTORE, fmt.Sprintf("%v", e.Microseconds()))
 
 	if !config.Config().ForceBackup {
 		return nil
