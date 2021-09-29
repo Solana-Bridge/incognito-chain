@@ -2,6 +2,8 @@ package incdb
 
 import (
 	"io"
+
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
 type BatchData struct {
@@ -31,6 +33,8 @@ type KeyValueWriter interface {
 type Stater interface {
 	// Stat returns a particular internal stat of the database.
 	Stat(property string) (string, error)
+	Stats() (*leveldb.DBStats, error)
+	GetPath() string
 }
 
 // Compacter wraps the Compact method of a backing data store.

@@ -15,7 +15,6 @@ import (
 	coinIndexer "github.com/incognitochain/incognito-chain/transaction/coin_indexer"
 
 	"github.com/incognitochain/incognito-chain/blockchain/signaturecounter"
-	"github.com/incognitochain/incognito-chain/config"
 
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/incognitochain/incognito-chain/blockchain/committeestate"

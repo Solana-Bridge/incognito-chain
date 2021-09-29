@@ -10,11 +10,9 @@ import (
 	"time"
 
 	"github.com/incognitochain/incognito-chain/instruction"
+	"github.com/incognitochain/incognito-chain/pubsub"
 
 	"github.com/pkg/errors"
-
-	"github.com/incognitochain/incognito-chain/config"
-	"github.com/incognitochain/incognito-chain/consensus_v2/consensustypes"
 
 	"github.com/incognitochain/incognito-chain/blockchain/committeestate"
 	"github.com/incognitochain/incognito-chain/blockchain/report"
@@ -28,8 +26,6 @@ import (
 	"github.com/incognitochain/incognito-chain/incdb"
 	"github.com/incognitochain/incognito-chain/incognitokey"
 	"github.com/incognitochain/incognito-chain/metadata"
-	"github.com/incognitochain/incognito-chain/pubsub"
-	"github.com/pkg/errors"
 )
 
 // VerifyPreSignShardBlock Verify Shard Block Before Signing

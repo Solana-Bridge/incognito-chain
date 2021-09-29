@@ -10,6 +10,21 @@ const (
 )
 
 const (
+	FEATURESIZE     = "featureStateDB"
+	BLKSIZE         = "blocksize"
+	CONSENSUSSIZE   = "consensusStateDB"
+	REWARDSIZE      = "rewardStateDB"
+	SLASHSIZE       = "slashStateDB"
+	STOREROOTHASH   = "storeRootsHash"
+	STOREBLKBYHASH  = "storeBlkByHash"
+	STOREFINALHASH  = "storeFinalizedBlockHashByIndex"
+	STORECROSSSHARD = "storeCrossShardInfo"
+	BACKUPVIEW      = "backupViews"
+	TOTALSIZE       = "totalincreasesize"
+	TOTALBLKSHARD   = "totalBlkShard"
+)
+
+const (
 	VTXS             = "validatetxs"
 	VBLKSIG          = "validateblksig"
 	GETVIEW          = "getviews"

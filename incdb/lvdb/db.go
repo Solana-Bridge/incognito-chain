@@ -160,6 +160,12 @@ func (db *db) Stat(property string) (string, error) {
 	return db.lvdb.GetProperty(property)
 }
 
+func (db *db) Stats() (*leveldb.DBStats, error) {
+	res := &leveldb.DBStats{}
+	err := db.lvdb.Stats(res)
+	return res, err
+}
+
 // Compact flattens the underlying data store for the given key range. In essence,
 // deleted and overwritten versions are discarded, and the data is rearranged to
 // reduce the cost of operations needed to access them.

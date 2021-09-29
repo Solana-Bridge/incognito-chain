@@ -6,17 +6,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru"
 	portalprocessv4 "github.com/incognitochain/incognito-chain/portal/portalv4/portalprocess"
 
-	lru "github.com/hashicorp/golang-lru"
-
 	"github.com/incognitochain/incognito-chain/blockchain/committeestate"
+	"github.com/incognitochain/incognito-chain/blockchain/report"
 	"github.com/incognitochain/incognito-chain/blockchain/types"
 	"github.com/incognitochain/incognito-chain/common"
 	"github.com/incognitochain/incognito-chain/config"
@@ -161,6 +163,12 @@ func (blockchain *BlockChain) InsertBeaconBlock(beaconBlock *types.BeaconBlock, 
 	if err != nil {
 		return NewBlockChainError(CleanBackUpError, err)
 	}
+	totalShardBlks := 0
+	for _, listBlkShard := range beaconBlock.Body.ShardState {
+		totalShardBlks += len(listBlkShard)
+	}
+	blockchain.reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.TOTALBLKSHARD, fmt.Sprintf("%v", totalShardBlks))
+	blockchain.reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.TOTALINS, fmt.Sprintf("%v", len(beaconBlock.Body.Instructions)))
 
 	// Update best state with new beaconBlock
 	newBestState, hashes, committeeChange, _, err := curView.updateBeaconBestState(beaconBlock, blockchain)
@@ -181,7 +189,7 @@ func (blockchain *BlockChain) InsertBeaconBlock(beaconBlock *types.BeaconBlock, 
 	if err2 := blockchain.processStoreBeaconBlock(curView, newBestState, beaconBlock, committeeChange); err2 != nil {
 		return err2
 	}
-
+	blockchain.reporter.WriteToFile(false, beaconBlock.GetHeight(), beaconBlock.GetCurrentEpoch(), report.DATABEACON_FILE)
 	Logger.log.Infof("BEACON | Finish Insert new Beacon Block %+v, with hash %+v", beaconBlock.Header.Height, *beaconBlock.Hash())
 	if beaconBlock.Header.Height%50 == 0 {
 		BLogger.log.Debugf("Inserted beacon height: %d", beaconBlock.Header.Height)
@@ -769,6 +777,22 @@ func (curView *BeaconBestState) countMissingSignatureV1(
 	return nil
 }
 
+func DirSize(path string) (int64, error) {
+	var size int64
+	files := []string{}
+	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		files = append(files, info.Name())
+		if !info.IsDir() {
+			size += info.Size()
+		}
+		return err
+	})
+	return size, err
+}
+
 func (blockchain *BlockChain) processStoreBeaconBlock(
 	curView *BeaconBestState,
 	newBestState *BeaconBestState,
@@ -778,8 +802,16 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	startTimeProcessStoreBeaconBlock := time.Now()
 	Logger.log.Debugf("BEACON | Process Store Beacon Block Height %+v with hash %+v", beaconBlock.Header.Height, beaconBlock.Header.Hash())
 	blockHash := beaconBlock.Header.Hash()
-
+	beaconDB := blockchain.GetBeaconChainDatabase()
 	var err error
+	reporter := blockchain.reporter
+	dbPath := beaconDB.GetPath()
+	dbSize, err := DirSize(dbPath)
+	startSize := dbSize
+	if err != nil {
+		Logger.log.Errorf("[testdb] %v", err)
+	}
+
 	//statedb===========================START
 	// Added
 	err = newBestState.storeCommitteeStateWithCurrentState(committeeChange)
@@ -880,14 +912,21 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	if err != nil {
 		return NewBlockChainError(UpdateDatabaseWithBlockRewardInfoError, err)
 	}
+
 	// execute, store
 	err = blockchain.processBridgeInstructions(newBestState.featureStateDB, beaconBlock)
 	if err != nil {
 		return NewBlockChainError(ProcessBridgeInstructionError, err)
 	}
+
 	// execute, store token init instructions
 	blockchain.processTokenInitInstructions(newBestState.featureStateDB, beaconBlock)
 	// execute, store PDE instruction
+	dbSize, err = DirSize(dbPath)
+	if err != nil {
+		return err
+	}
+	Logger.log.Infof("[testdb] Before1 %+vKB", dbSize/1024)
 	newBestState.pdeState, err = blockchain.processPDEInstructions(newBestState, beaconBlock)
 	if err != nil {
 		Logger.log.Error(err)
@@ -908,18 +947,22 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 		//for legacy logic prefix-currentbeaconheight-tokenid1-tokenid2
 		newBestState.pdeState = newBestState.pdeState.transformKeyWithNewBeaconHeight(beaconBlock.Header.Height)
 	}
+	dbSize, err = DirSize(dbPath)
+	if err != nil {
+		return err
+	}
+	Logger.log.Infof("[testdb] After1 %+vKB", dbSize/1024)
 	// Save result of BurningConfirm instruction to get proof later
 	metas := []string{ // Burning v2: sig on beacon only
 		strconv.Itoa(metadata.BurningConfirmMetaV2),
 		strconv.Itoa(metadata.BurningConfirmForDepositToSCMetaV2),
 		strconv.Itoa(metadata.BurningBSCConfirmMeta),
 		strconv.Itoa(metadata.BurningPRVERC20ConfirmMeta),
-        strconv.Itoa(metadata.BurningPRVBEP20ConfirmMeta),
+		strconv.Itoa(metadata.BurningPRVBEP20ConfirmMeta),
 	}
 	if err := blockchain.storeBurningConfirm(newBestState.featureStateDB, beaconBlock.Body.Instructions, beaconBlock.Header.Height, metas); err != nil {
 		return NewBlockChainError(StoreBurningConfirmError, err)
 	}
-
 	// execute, store Portal Instruction
 	// execute, store Ralaying Instruction
 	newBestState.portalStateV4, err = blockchain.processPortalInstructions(newBestState.featureStateDB, beaconBlock)
@@ -946,7 +989,7 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	//if err := statedb.StoreBeaconBlockHashByIndex(newBestState.consensusStateDB, blockHeight, blockHash); err != nil {
 	//	return err
 	//}
-
+	stS, _ := DirSize(dbPath)
 	consensusRootHash, err := newBestState.consensusStateDB.Commit(true)
 	if err != nil {
 		return err
@@ -955,7 +998,10 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	if err != nil {
 		return err
 	}
-
+	eS, _ := DirSize(dbPath)
+	s := stS - eS
+	stS = eS
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.CONSENSUSSIZE, fmt.Sprintf("%v", s))
 	newBestState.ConsensusStateDBRootHash = consensusRootHash
 	featureRootHash, err := newBestState.featureStateDB.Commit(true)
 	if err != nil {
@@ -965,6 +1011,10 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	if err != nil {
 		return err
 	}
+	eS, _ = DirSize(dbPath)
+	s = stS - eS
+	stS = eS
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.FEATURESIZE, fmt.Sprintf("%v", s))
 	newBestState.FeatureStateDBRootHash = featureRootHash
 	rewardRootHash, err := newBestState.rewardStateDB.Commit(true)
 	if err != nil {
@@ -974,6 +1024,10 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	if err != nil {
 		return err
 	}
+	eS, _ = DirSize(dbPath)
+	s = stS - eS
+	stS = eS
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.REWARDSIZE, fmt.Sprintf("%v", s))
 	newBestState.RewardStateDBRootHash = rewardRootHash
 	slashRootHash, err := newBestState.slashStateDB.Commit(true)
 	if err != nil {
@@ -983,6 +1037,10 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	if err != nil {
 		return err
 	}
+	eS, _ = DirSize(dbPath)
+	s = stS - eS
+	stS = eS
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.SLASHSIZE, fmt.Sprintf("%v", s))
 	newBestState.SlashStateDBRootHash = slashRootHash
 	newBestState.consensusStateDB.ClearObjects()
 	newBestState.rewardStateDB.ClearObjects()
@@ -990,7 +1048,7 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	newBestState.slashStateDB.ClearObjects()
 	//statedb===========================END
 
-	batch := blockchain.GetBeaconChainDatabase().NewBatch()
+	// batch := beaconDB.NewBatch()
 	//State Root Hash
 	bRH := BeaconRootHash{
 		ConsensusStateDBRootHash: consensusRootHash,
@@ -999,14 +1057,20 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 		SlashStateDBRootHash:     slashRootHash,
 	}
 
-	if err := rawdbv2.StoreBeaconRootsHash(batch, blockHash, bRH); err != nil {
+	if err := rawdbv2.StoreBeaconRootsHash(beaconDB, blockHash, bRH); err != nil {
 		return NewBlockChainError(StoreShardBlockError, err)
 	}
-
-	if err := rawdbv2.StoreBeaconBlockByHash(batch, blockHash, beaconBlock); err != nil {
+	eS, _ = DirSize(dbPath)
+	s = stS - eS
+	stS = eS
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.STOREROOTHASH, fmt.Sprintf("%v", s))
+	if err := rawdbv2.StoreBeaconBlockByHash(beaconDB, blockHash, beaconBlock); err != nil {
 		return NewBlockChainError(StoreBeaconBlockError, err)
 	}
-
+	eS, _ = DirSize(dbPath)
+	s = stS - eS
+	stS = eS
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.STOREBLKBYHASH, fmt.Sprintf("%v", s))
 	err2 := newBestState.tryUpgradeConsensusRule()
 	if err2 != nil {
 		return NewBlockChainError(StoreBeaconBlockError, err2)
@@ -1021,7 +1085,7 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	finalizedBlocks := []*types.BeaconBlock{}
 
 	for finalView == nil || storeBlock.GetHeight() > finalView.GetHeight() {
-		err := rawdbv2.StoreFinalizedBeaconBlockHashByIndex(batch, storeBlock.GetHeight(), *storeBlock.Hash())
+		err := rawdbv2.StoreFinalizedBeaconBlockHashByIndex(beaconDB, storeBlock.GetHeight(), *storeBlock.Hash())
 		if err != nil {
 			return NewBlockChainError(StoreBeaconBlockError, err)
 		}
@@ -1041,21 +1105,35 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 			storeBlock = newFinalView.GetBlock()
 		}
 	}
-
+	eS, _ = DirSize(dbPath)
+	s = stS - eS
+	stS = eS
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.STOREFINALHASH, fmt.Sprintf("%v", s))
 	for i := len(finalizedBlocks) - 1; i >= 0; i-- {
 		Logger.log.Debug("process beacon block", finalizedBlocks[i].Header.Height)
 		processBeaconForConfirmmingCrossShard(blockchain, finalizedBlocks[i], newBestState.LastCrossShardState)
 	}
-
-	err = blockchain.BackupBeaconViews(batch)
+	eS, _ = DirSize(dbPath)
+	s = stS - eS
+	stS = eS
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.STORECROSSSHARD, fmt.Sprintf("%v", s))
+	err = blockchain.BackupBeaconViews(beaconDB)
 	if err != nil {
 		return err
 	}
-
-	if err := batch.Write(); err != nil {
-		return NewBlockChainError(StoreBeaconBlockError, err)
-	}
+	eS, _ = DirSize(dbPath)
+	s = stS - eS
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.BACKUPVIEW, fmt.Sprintf("%v", s))
+	// if err := batch.Write(); err != nil {
+	// 	return NewBlockChainError(StoreBeaconBlockError, err)
+	// }
 	beaconStoreBlockTimer.UpdateSince(startTimeProcessStoreBeaconBlock)
+	eS, _ = DirSize(dbPath)
+	s = startSize - eS
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.TOTALSIZE, fmt.Sprintf("%v", s))
+	beaconBytes, _ := json.Marshal(beaconBlock)
+	blkSize := len(beaconBytes)
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.BLKSIZE, fmt.Sprintf("%v", blkSize))
 
 	if !config.Config().ForceBackup {
 		return nil
