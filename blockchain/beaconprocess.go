@@ -169,6 +169,8 @@ func (blockchain *BlockChain) InsertBeaconBlock(beaconBlock *types.BeaconBlock, 
 	}
 	blockchain.reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.TOTALBLKSHARD, fmt.Sprintf("%v", totalShardBlks))
 	blockchain.reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.TOTALINS, fmt.Sprintf("%v", len(beaconBlock.Body.Instructions)))
+	blockchain.reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.BLKHEIGHT, fmt.Sprintf("%v", beaconBlock.GetHeight()))
+	blockchain.reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.EPOCH, fmt.Sprintf("%v", beaconBlock.GetCurrentEpoch()))
 
 	// Update best state with new beaconBlock
 	newBestState, hashes, committeeChange, _, err := curView.updateBeaconBestState(beaconBlock, blockchain)

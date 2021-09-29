@@ -102,6 +102,8 @@ var (
 			TOTALSIZE,
 			TOTALBLKSHARD,
 			TOTALINS,
+			BLKHEIGHT,
+			EPOCH,
 		},
 	}
 )
