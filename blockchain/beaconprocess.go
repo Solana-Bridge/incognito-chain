@@ -807,12 +807,12 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	beaconDB := blockchain.GetBeaconChainDatabase()
 	var err error
 	reporter := blockchain.reporter
-	dbPath := beaconDB.GetPath()
-	dbSize, err := DirSize(dbPath)
-	startSize := dbSize
-	if err != nil {
-		Logger.log.Errorf("[testdb] %v", err)
-	}
+	// dbPath := beaconDB.GetPath()
+	// dbSize, err := DirSize(dbPath)
+	// startSize := dbSize
+	// if err != nil {
+	// 	Logger.log.Errorf("[testdb] %v", err)
+	// }
 
 	//statedb===========================START
 	// Added
@@ -982,58 +982,63 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	//if err := statedb.StoreBeaconBlockHashByIndex(newBestState.consensusStateDB, blockHeight, blockHash); err != nil {
 	//	return err
 	//}
-	stS, _ := DirSize(dbPath)
+	totalIncrease := uint64(0)
+	// stS, _ := DirSize(dbPath)
 	consensusRootHash, err := newBestState.consensusStateDB.Commit(true)
 	if err != nil {
 		return err
 	}
-	err = newBestState.consensusStateDB.Database().TrieDB().Commit(consensusRootHash, false)
+	sizenew, err := newBestState.consensusStateDB.Database().TrieDB().CommitCustom(consensusRootHash, false)
 	if err != nil {
 		return err
 	}
-	eS, _ := DirSize(dbPath)
-	s := eS - stS
-	stS = eS
-	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.CONSENSUSSIZE, fmt.Sprintf("%v", s))
+	totalIncrease += sizenew
+	// eS, _ := DirSize(dbPath)
+	// s := eS - stS
+	// stS = eS
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.CONSENSUSSIZE, fmt.Sprintf("%v", sizenew))
 	newBestState.ConsensusStateDBRootHash = consensusRootHash
 	featureRootHash, err := newBestState.featureStateDB.Commit(true)
 	if err != nil {
 		return err
 	}
-	err = newBestState.featureStateDB.Database().TrieDB().Commit(featureRootHash, false)
+	sizenew, err = newBestState.featureStateDB.Database().TrieDB().CommitCustom(featureRootHash, false)
 	if err != nil {
 		return err
 	}
-	eS, _ = DirSize(dbPath)
-	s = eS - stS
-	stS = eS
-	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.FEATURESIZE, fmt.Sprintf("%v", s))
+	totalIncrease += sizenew
+	// eS, _ = DirSize(dbPath)
+	// s = eS - stS
+	// stS = eS
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.FEATURESIZE, fmt.Sprintf("%v", sizenew))
 	newBestState.FeatureStateDBRootHash = featureRootHash
 	rewardRootHash, err := newBestState.rewardStateDB.Commit(true)
 	if err != nil {
 		return err
 	}
-	err = newBestState.rewardStateDB.Database().TrieDB().Commit(rewardRootHash, false)
+	sizenew, err = newBestState.rewardStateDB.Database().TrieDB().CommitCustom(rewardRootHash, false)
 	if err != nil {
 		return err
 	}
-	eS, _ = DirSize(dbPath)
-	s = eS - stS
-	stS = eS
-	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.REWARDSIZE, fmt.Sprintf("%v", s))
+	totalIncrease += sizenew
+	// eS, _ = DirSize(dbPath)
+	// s = eS - stS
+	// stS = eS
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.REWARDSIZE, fmt.Sprintf("%v", sizenew))
 	newBestState.RewardStateDBRootHash = rewardRootHash
 	slashRootHash, err := newBestState.slashStateDB.Commit(true)
 	if err != nil {
 		return err
 	}
-	err = newBestState.slashStateDB.Database().TrieDB().Commit(slashRootHash, false)
+	sizenew, err = newBestState.slashStateDB.Database().TrieDB().CommitCustom(slashRootHash, false)
 	if err != nil {
 		return err
 	}
-	eS, _ = DirSize(dbPath)
-	s = eS - stS
-	stS = eS
-	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.SLASHSIZE, fmt.Sprintf("%v", s))
+	totalIncrease += sizenew
+	// eS, _ = DirSize(dbPath)
+	// s = eS - stS
+	// stS = eS
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.SLASHSIZE, fmt.Sprintf("%v", sizenew))
 	newBestState.SlashStateDBRootHash = slashRootHash
 	newBestState.consensusStateDB.ClearObjects()
 	newBestState.rewardStateDB.ClearObjects()
@@ -1050,20 +1055,22 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 		SlashStateDBRootHash:     slashRootHash,
 	}
 
-	if err := rawdbv2.StoreBeaconRootsHash(beaconDB, blockHash, bRH); err != nil {
+	if sizenew, err = rawdbv2.StoreBeaconRootsHash(beaconDB, blockHash, bRH); err != nil {
 		return NewBlockChainError(StoreShardBlockError, err)
 	}
-	eS, _ = DirSize(dbPath)
-	s = eS - stS
-	stS = eS
-	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.STOREROOTHASH, fmt.Sprintf("%v", s))
-	if err := rawdbv2.StoreBeaconBlockByHash(beaconDB, blockHash, beaconBlock); err != nil {
+	totalIncrease += sizenew
+	// eS, _ = DirSize(dbPath)
+	// s = eS - stS
+	// stS = eS
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.STOREROOTHASH, fmt.Sprintf("%v", sizenew))
+	if sizenew, err = rawdbv2.StoreBeaconBlockByHash(beaconDB, blockHash, beaconBlock); err != nil {
 		return NewBlockChainError(StoreBeaconBlockError, err)
 	}
-	eS, _ = DirSize(dbPath)
-	s = eS - stS
-	stS = eS
-	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.STOREBLKBYHASH, fmt.Sprintf("%v", s))
+	totalIncrease += sizenew
+	// eS, _ = DirSize(dbPath)
+	// s = eS - stS
+	// stS = eS
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.STOREBLKBYHASH, fmt.Sprintf("%v", sizenew))
 	err2 := newBestState.tryUpgradeConsensusRule()
 	if err2 != nil {
 		return NewBlockChainError(StoreBeaconBlockError, err2)
@@ -1077,8 +1084,10 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	storeBlock := newFinalView.GetBlock()
 	finalizedBlocks := []*types.BeaconBlock{}
 
+	sizenew = 0
 	for finalView == nil || storeBlock.GetHeight() > finalView.GetHeight() {
-		err := rawdbv2.StoreFinalizedBeaconBlockHashByIndex(beaconDB, storeBlock.GetHeight(), *storeBlock.Hash())
+		finalSize, err := rawdbv2.StoreFinalizedBeaconBlockHashByIndex(beaconDB, storeBlock.GetHeight(), *storeBlock.Hash())
+		sizenew += finalSize
 		if err != nil {
 			return NewBlockChainError(StoreBeaconBlockError, err)
 		}
@@ -1098,32 +1107,40 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 			storeBlock = newFinalView.GetBlock()
 		}
 	}
-	eS, _ = DirSize(dbPath)
-	s = eS - stS
-	stS = eS
-	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.STOREFINALHASH, fmt.Sprintf("%v", s))
+	totalIncrease += sizenew
+	// eS, _ = DirSize(dbPath)
+	// s = eS - stS
+	// stS = eS
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.STOREFINALHASH, fmt.Sprintf("%v", totalIncrease))
+	sizenew = 0
 	for i := len(finalizedBlocks) - 1; i >= 0; i-- {
 		Logger.log.Debug("process beacon block", finalizedBlocks[i].Header.Height)
-		processBeaconForConfirmmingCrossShard(blockchain, finalizedBlocks[i], newBestState.LastCrossShardState)
+		xShardSize, err := processBeaconForConfirmmingCrossShard(blockchain, finalizedBlocks[i], newBestState.LastCrossShardState)
+		if err != nil {
+			return err
+		}
+		sizenew += xShardSize
 	}
-	eS, _ = DirSize(dbPath)
-	s = eS - stS
-	stS = eS
-	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.STORECROSSSHARD, fmt.Sprintf("%v", s))
-	err = blockchain.BackupBeaconViews(beaconDB)
+	totalIncrease += sizenew
+	// eS, _ = DirSize(dbPath)
+	// s = eS - stS
+	// stS = eS
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.STORECROSSSHARD, fmt.Sprintf("%v", sizenew))
+	sizenew, err = blockchain.BackupBeaconViews(beaconDB)
 	if err != nil {
 		return err
 	}
-	eS, _ = DirSize(dbPath)
-	s = eS - stS
-	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.BACKUPVIEW, fmt.Sprintf("%v", s))
+	totalIncrease += sizenew
+	// eS, _ = DirSize(dbPath)
+	// s = eS - stS
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.BACKUPVIEW, fmt.Sprintf("%v", sizenew))
 	// if err := batch.Write(); err != nil {
 	// 	return NewBlockChainError(StoreBeaconBlockError, err)
 	// }
 	beaconStoreBlockTimer.UpdateSince(startTimeProcessStoreBeaconBlock)
-	eS, _ = DirSize(dbPath)
-	s = eS - startSize
-	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.TOTALSIZE, fmt.Sprintf("%v", s))
+	// eS, _ = DirSize(dbPath)
+	// s = eS - startSize
+	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.TOTALSIZE, fmt.Sprintf("%v", totalIncrease))
 	beaconBytes, _ := json.Marshal(beaconBlock)
 	blkSize := len(beaconBytes)
 	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.BLKSIZE, fmt.Sprintf("%v", blkSize))
@@ -1156,7 +1173,8 @@ type NextCrossShardInfo struct {
 	ConfirmBeaconHash    string
 }
 
-func processBeaconForConfirmmingCrossShard(blockchain *BlockChain, beaconBlock *types.BeaconBlock, lastCrossShardState map[byte]map[byte]uint64) error {
+func processBeaconForConfirmmingCrossShard(blockchain *BlockChain, beaconBlock *types.BeaconBlock, lastCrossShardState map[byte]map[byte]uint64) (uint64, error) {
+	totalSize := uint64(0)
 	database := blockchain.GetBeaconChainDatabase()
 	if beaconBlock != nil && beaconBlock.Body.ShardState != nil {
 		for fromShard, shardBlocks := range beaconBlock.Body.ShardState {
@@ -1184,9 +1202,10 @@ func processBeaconForConfirmmingCrossShard(blockchain *BlockChain, beaconBlock *
 					existedInfo, _ := rawdbv2.GetCrossShardNextHeight(database, fromShard, toShard, lastHeight)
 					if existedInfo == nil || len(existedInfo) == 0 {
 						Logger.log.Info("debug StoreCrossShardNextHeight", fromShard, toShard, lastHeight, string(b))
+						totalSize += uint64(len(b))
 						err := rawdbv2.StoreCrossShardNextHeight(database, fromShard, toShard, lastHeight, b)
 						if err != nil {
-							return err
+							return totalSize, err
 						}
 					} else {
 						Logger.log.Info("debug StoreCrossShardNextHeight: already exit", fromShard, toShard, lastHeight, string(existedInfo))
@@ -1200,7 +1219,7 @@ func processBeaconForConfirmmingCrossShard(blockchain *BlockChain, beaconBlock *
 			}
 		}
 	}
-	return nil
+	return totalSize, nil
 }
 
 func getStakingCandidate(beaconBlock types.BeaconBlock) ([]string, []string) {

@@ -94,9 +94,11 @@ type rawShortNode struct {
 	Val node
 }
 
-func (n rawShortNode) canUnload(uint16, uint16) bool { panic("this should never end up in a live trie") }
-func (n rawShortNode) cache() (hashNode, bool)       { panic("this should never end up in a live trie") }
-func (n rawShortNode) fstring(ind string) string     { panic("this should never end up in a live trie") }
+func (n rawShortNode) canUnload(uint16, uint16) bool {
+	panic("this should never end up in a live trie")
+}
+func (n rawShortNode) cache() (hashNode, bool)   { panic("this should never end up in a live trie") }
+func (n rawShortNode) fstring(ind string) string { panic("this should never end up in a live trie") }
 
 // cachedNode is all the information we know about a single cached node in the
 // memory database write layer.
@@ -652,6 +654,75 @@ func (intermediateWriter *IntermediateWriter) Cap(limit common.StorageSize) erro
 		"flushnodes", intermediateWriter.flushnodes, "flushsize", intermediateWriter.flushsize, "flushtime", intermediateWriter.flushtime, "livenodes", len(intermediateWriter.dirties), "livesize", intermediateWriter.dirtiesSize)
 
 	return nil
+}
+
+func (intermediateWriter *IntermediateWriter) CommitCustom(node common.Hash, report bool) (uint64, error) {
+	// Create a database batch to flush persistent data out. It is important that
+	// outside code doesn't see an inconsistent state (referenced data removed from
+	// memory cache during commit but not yet in persistent storage). This is ensured
+	// by only uncaching existing data when the database write finalizes.
+	//start := time.Now()
+	batch := intermediateWriter.diskdb.NewBatch()
+	totalSize := uint64(0)
+	// Move all of the accumulated preimages into a write batch
+	for hash, preimage := range intermediateWriter.preimages {
+		if err := batch.Put(intermediateWriter.secureKey(hash[:]), preimage); err != nil {
+			Logger.log.Error("Failed to commit preimage from trie database", "err", err)
+			return 0, err
+		}
+		// If the batch is too large, flush to disk
+		if batch.ValueSize() > incdb.IdealBatchSize {
+			totalSize += uint64(batch.ValueSize())
+			if err := batch.Write(); err != nil {
+				return 0, err
+			}
+			batch.Reset()
+		}
+	}
+	// Since we're going to replay trie node writes into the clean cache, flush out
+	// any batched pre-images before continuing.
+	totalSize += uint64(batch.ValueSize())
+	if err := batch.Write(); err != nil {
+		return 0, err
+	}
+	batch.Reset()
+
+	// Move the trie itself into the batch, flushing if enough data is accumulated
+	//nodes, storage := len(intermediateWriter.dirties), intermediateWriter.dirtiesSize
+
+	uncacher := &cleaner{intermediateWriter}
+	if err := intermediateWriter.commit(node, batch, uncacher); err != nil {
+		Logger.log.Error("Failed to commit trie from trie database", "err", err)
+		return 0, err
+	}
+	// Trie mostly committed to disk, flush any batch leftovers
+	if err := batch.Write(); err != nil {
+		Logger.log.Error("Failed to write trie to disk", "err", err)
+		return 0, err
+	}
+	// Uncache any leftovers in the last batch
+	intermediateWriter.lock.Lock()
+	defer intermediateWriter.lock.Unlock()
+
+	batch.Replay(uncacher)
+	batch.Reset()
+
+	// Reset the storage counters and bumpd metrics
+	intermediateWriter.preimages = make(map[common.Hash][]byte)
+	intermediateWriter.preimagesSize = 0
+
+	//memcacheCommitTimeTimer.Update(time.Since(start))
+	//memcacheCommitSizeMeter.Mark(int64(storage - iw.dirtiesSize))
+	//memcacheCommitNodesMeter.Mark(int64(nodes - len(iw.dirties)))
+
+	//Logger.log.Info("Persisted trie from memory database", "nodes", nodes-len(intermediateWriter.dirties)+int(intermediateWriter.flushnodes), "size", storage-intermediateWriter.dirtiesSize+intermediateWriter.flushsize, "time", time.Since(start)+intermediateWriter.flushtime,
+	//	"gcnodes", intermediateWriter.gcnodes, "gcsize", intermediateWriter.gcsize, "gctime", intermediateWriter.gctime, "livenodes", len(intermediateWriter.dirties), "livesize", intermediateWriter.dirtiesSize)
+
+	// Reset the garbage collection statistics
+	intermediateWriter.gcnodes, intermediateWriter.gcsize, intermediateWriter.gctime = 0, 0, 0
+	intermediateWriter.flushnodes, intermediateWriter.flushsize, intermediateWriter.flushtime = 0, 0, 0
+
+	return totalSize, nil
 }
 
 // Commit iterates over all the children of a particular node, writes them out

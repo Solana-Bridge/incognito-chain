@@ -299,7 +299,7 @@ func (blockchain *BlockChain) initBeaconState() error {
 		return err
 	}
 	initBeaconBestState.consensusStateDB.ClearObjects()
-	if err := rawdbv2.StoreBeaconBlockByHash(blockchain.GetBeaconChainDatabase(), initBlockHash, &initBeaconBestState.BestBlock); err != nil {
+	if _, err := rawdbv2.StoreBeaconBlockByHash(blockchain.GetBeaconChainDatabase(), initBlockHash, &initBeaconBestState.BestBlock); err != nil {
 		Logger.log.Error("Error store beacon block", initBeaconBestState.BestBlockHash, "in beacon chain")
 		return err
 	}
@@ -314,13 +314,13 @@ func (blockchain *BlockChain) initBeaconState() error {
 	}
 
 	initBeaconBestState.ConsensusStateDBRootHash = consensusRootHash
-	if err := rawdbv2.StoreBeaconRootsHash(blockchain.GetBeaconChainDatabase(), initBlockHash, bRH); err != nil {
+	if _, err := rawdbv2.StoreBeaconRootsHash(blockchain.GetBeaconChainDatabase(), initBlockHash, bRH); err != nil {
 		return NewBlockChainError(StoreShardBlockError, err)
 	}
 
 	// Insert new block into beacon chain
 	blockchain.BeaconChain.multiView.AddView(initBeaconBestState)
-	if err := blockchain.BackupBeaconViews(blockchain.GetBeaconChainDatabase()); err != nil {
+	if _, err := blockchain.BackupBeaconViews(blockchain.GetBeaconChainDatabase()); err != nil {
 		Logger.log.Error("Error Store best state for block", blockchain.GetBeaconBestState().BestBlockHash, "in beacon chain")
 		return NewBlockChainError(UnExpectedError, err)
 	}
@@ -568,13 +568,14 @@ func (blockchain *BlockChain) BackupBeaconChain(writer io.Writer) error {
 /*
 Backup all BeaconView into Database
 */
-func (blockchain *BlockChain) BackupBeaconViews(db incdb.KeyValueWriter) error {
+func (blockchain *BlockChain) BackupBeaconViews(db incdb.KeyValueWriter) (uint64, error) {
 	allViews := []*BeaconBestState{}
 	for _, v := range blockchain.BeaconChain.multiView.GetAllViewsWithBFS() {
 		allViews = append(allViews, v.(*BeaconBestState))
 	}
 	b, _ := json.Marshal(allViews)
-	return rawdbv2.StoreBeaconViews(db, b)
+	err := rawdbv2.StoreBeaconViews(db, b)
+	return uint64(len(b)), err
 }
 
 /*

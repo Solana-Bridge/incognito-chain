@@ -8,14 +8,14 @@ import (
 	"github.com/incognitochain/incognito-chain/incdb"
 )
 
-func StoreBeaconRootsHash(db incdb.KeyValueWriter, hash common.Hash, rootsHash interface{}) error {
+func StoreBeaconRootsHash(db incdb.KeyValueWriter, hash common.Hash, rootsHash interface{}) (uint64, error) {
 	key := GetBeaconRootsHashKey(hash)
 	b, _ := json.Marshal(rootsHash)
 	err := db.Put(key, b)
 	if err != nil {
-		return NewRawdbError(StoreShardConsensusRootHashError, err)
+		return 0, NewRawdbError(StoreShardConsensusRootHashError, err)
 	}
-	return nil
+	return uint64(len(b)), nil
 }
 
 func GetBeaconRootsHash(db incdb.KeyValueReader, hash common.Hash) ([]byte, error) {
@@ -25,24 +25,24 @@ func GetBeaconRootsHash(db incdb.KeyValueReader, hash common.Hash) ([]byte, erro
 }
 
 // StoreBeaconBlock store block hash => block value
-func StoreBeaconBlockByHash(db incdb.KeyValueWriter, hash common.Hash, v interface{}) error {
+func StoreBeaconBlockByHash(db incdb.KeyValueWriter, hash common.Hash, v interface{}) (uint64, error) {
 	keyHash := GetBeaconHashToBlockKey(hash)
 	val, err := json.Marshal(v)
 	if err != nil {
-		return NewRawdbError(StoreBeaconBlockError, err)
+		return 0, NewRawdbError(StoreBeaconBlockError, err)
 	}
 	if err := db.Put(keyHash, val); err != nil {
-		return NewRawdbError(StoreBeaconBlockError, err)
+		return 0, NewRawdbError(StoreBeaconBlockError, err)
 	}
-	return nil
+	return uint64(len(val)), nil
 }
 
-func StoreFinalizedBeaconBlockHashByIndex(db incdb.KeyValueWriter, index uint64, hash common.Hash) error {
+func StoreFinalizedBeaconBlockHashByIndex(db incdb.KeyValueWriter, index uint64, hash common.Hash) (uint64, error) {
 	keyHash := GetBeaconIndexToBlockHashKey(index)
 	if err := db.Put(keyHash, hash.Bytes()); err != nil {
-		return NewRawdbError(StoreBeaconBlockError, err)
+		return 0, NewRawdbError(StoreBeaconBlockError, err)
 	}
-	return nil
+	return uint64(len(hash.Bytes())), nil
 }
 
 func HasBeaconBlock(db incdb.KeyValueReader, hash common.Hash) (bool, error) {
