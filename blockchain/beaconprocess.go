@@ -1129,7 +1129,7 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	// }
 	beaconStoreBlockTimer.UpdateSince(startTimeProcessStoreBeaconBlock)
 	eS, _ = DirSize(dbPath)
-	s = startSize - eS
+	s = eS - startSize
 	reporter.RecordData(beaconBlock.GetHeight(), report.DATABEACON_FILE, report.TOTALSIZE, fmt.Sprintf("%v", s))
 	beaconBytes, _ := json.Marshal(beaconBlock)
 	blkSize := len(beaconBytes)
