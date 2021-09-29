@@ -922,11 +922,6 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 	// execute, store token init instructions
 	blockchain.processTokenInitInstructions(newBestState.featureStateDB, beaconBlock)
 	// execute, store PDE instruction
-	dbSize, err = DirSize(dbPath)
-	if err != nil {
-		return err
-	}
-	Logger.log.Infof("[testdb] Before1 %+vKB", dbSize/1024)
 	newBestState.pdeState, err = blockchain.processPDEInstructions(newBestState, beaconBlock)
 	if err != nil {
 		Logger.log.Error(err)
@@ -947,11 +942,7 @@ func (blockchain *BlockChain) processStoreBeaconBlock(
 		//for legacy logic prefix-currentbeaconheight-tokenid1-tokenid2
 		newBestState.pdeState = newBestState.pdeState.transformKeyWithNewBeaconHeight(beaconBlock.Header.Height)
 	}
-	dbSize, err = DirSize(dbPath)
-	if err != nil {
-		return err
-	}
-	Logger.log.Infof("[testdb] After1 %+vKB", dbSize/1024)
+
 	// Save result of BurningConfirm instruction to get proof later
 	metas := []string{ // Burning v2: sig on beacon only
 		strconv.Itoa(metadata.BurningConfirmMetaV2),
