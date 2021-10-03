@@ -9,8 +9,13 @@ import (
 
 type oneBlkData map[string]string
 
+type fileInfo struct {
+	f *os.File
+	e uint64
+}
+
 type Reporter struct {
-	FileType          map[string]*os.File
+	FileType          map[string]*fileInfo
 	LatestShardEpoch  uint64
 	LatestBeaconEpoch uint64
 	Locker            *sync.RWMutex
@@ -19,7 +24,7 @@ type Reporter struct {
 
 func NewReporter() *Reporter {
 	return &Reporter{
-		FileType:          map[string]*os.File{},
+		FileType:          map[string]*fileInfo{},
 		LatestShardEpoch:  100000,
 		LatestBeaconEpoch: 100000,
 		Locker:            &sync.RWMutex{},
@@ -40,19 +45,37 @@ func (r *Reporter) RecordData(blockHeight uint64, fileName, key, value string) {
 	r.Locker.Unlock()
 }
 
+func FileExists(filename string) bool {
+	info, err := os.Stat(filename)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return !info.IsDir()
+}
+
+func needNewFile(fExists bool, fInfo *fileInfo, e uint64, fileName string) bool {
+	if !fExists {
+		if !FileExists(fileName) {
+			return false
+		}
+		return true
+	}
+
+	if (fInfo.e / 100) != (e / 100) {
+		return true
+	}
+	return false
+}
+
 func (r *Reporter) WriteToFile(isShard bool, blockHeight, epoch uint64, fileName string) {
 	r.Locker.Lock()
 	defer r.Locker.Unlock()
-	latestEpoch := r.LatestShardEpoch
-	if !isShard {
-		latestEpoch = r.LatestBeaconEpoch
-	}
-	f, fileExist := r.FileType[fileName]
+	fInfo, fileExist := r.FileType[fileName]
 	var err error
-	if ((epoch / 100) != (latestEpoch / 100)) || (!fileExist) {
+	newFile := fmt.Sprintf("%v%v", epoch/100, fileName)
+	if needNewFile(fileExist, fInfo, epoch, newFile) {
 		e := epoch / 100
-		newFile := fmt.Sprintf("%v%v", e, fileName)
-		f, err = os.OpenFile(newFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+		f, err := os.OpenFile(newFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 		if err != nil {
 			panic(err)
 		}
@@ -64,14 +87,25 @@ func (r *Reporter) WriteToFile(isShard bool, blockHeight, epoch uint64, fileName
 			}
 		}
 		w.Flush()
-		r.FileType[fileName] = f
-		if isShard {
-			r.LatestShardEpoch = epoch
-		} else {
-			r.LatestBeaconEpoch = epoch
+		r.FileType[fileName] = &fileInfo{
+			f: f,
+			e: e,
+		}
+	} else {
+		if !fileExist {
+			e := epoch / 100
+			f, err := os.OpenFile(newFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+			if err != nil {
+				panic(err)
+			}
+			r.FileType[fileName] = &fileInfo{
+				f: f,
+				e: e,
+			}
 		}
 	}
-	w := csv.NewWriter(f)
+	fInfo = r.FileType[fileName]
+	w := csv.NewWriter(fInfo.f)
 	if listKey, ok := ColByFile[fileName]; ok {
 		dataKey := fmt.Sprintf("%v%v", fileName, blockHeight)
 		vals := []string{}
