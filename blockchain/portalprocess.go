@@ -47,12 +47,13 @@ func (blockchain *BlockChain) processPortalInstructions(
 		isSkipPortalV3Ints = true
 	}
 	// get the last portalv4 state
-	clonedBeaconBestState, err := blockchain.GetClonedBeaconBestState()
-	if err != nil {
-		Logger.log.Error(err)
-		return nil, nil
-	}
-	lastPortalV4State := clonedBeaconBestState.portalStateV4
+	// clonedBeaconBestState, err := blockchain.GetClonedBeaconBestState()
+	// if err != nil {
+	// 	Logger.log.Error(err)
+	// 	return nil, nil
+	// }
+	// lastPortalV4State := clonedBeaconBestState.portalStateV4
+	lastPortalV4State := blockchain.GetBeaconBestState().GetPortalStateV4()
 	beaconHeight := block.Header.Height - 1
 	relayingState, err := portalrelaying.InitRelayingHeaderChainStateFromDB(blockchain.GetBNBHeaderChain(), blockchain.GetBTCHeaderChain())
 	if err != nil {

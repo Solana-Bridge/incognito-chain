@@ -3,11 +3,12 @@ package blockchain
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"time"
+
 	"github.com/incognitochain/incognito-chain/common/consensus"
 	"github.com/incognitochain/incognito-chain/portal/portalv4/portalprocess"
 	"github.com/incognitochain/incognito-chain/syncker/finishsync"
-	"reflect"
-	"time"
 
 	"github.com/incognitochain/incognito-chain/blockchain/committeestate"
 	"github.com/incognitochain/incognito-chain/blockchain/signaturecounter"
@@ -465,6 +466,10 @@ func (beaconBestState *BeaconBestState) cloneBeaconBestStateFrom(target *BeaconB
 	}
 
 	return nil
+}
+
+func (beaconBestState *BeaconBestState) GetPortalStateV4() *portalprocess.CurrentPortalStateV4 {
+	return beaconBestState.portalStateV4.Copy()
 }
 
 func (beaconBestState *BeaconBestState) CloneBeaconBestStateFrom(target *BeaconBestState) error {
