@@ -55,13 +55,10 @@ func FileExists(filename string) bool {
 
 func needNewFile(fExists bool, fInfo *fileInfo, e uint64, fileName string) bool {
 	if !fExists {
-		if FileExists(fileName) {
-			return false
-		}
-		return true
+		return !FileExists(fileName)
 	}
 
-	if (fInfo.e / 100) != (e / 100) {
+	if fInfo.e != (e / 100) {
 		return true
 	}
 	return false
