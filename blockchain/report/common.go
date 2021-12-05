@@ -4,7 +4,7 @@ const (
 	TIMEBEACON_FILE      = "timebeacon.csv"
 	DATABEACON_FILE      = "databeacon.csv"
 	TIMESHARD_FILE       = "timeshard.csv"
-	DATASHARD_FILE       = "databeacon.csv"
+	DATASHARD_FILE       = "datashard.csv"
 	BLOCKINFOSHARD_FILE  = "blkinfoshard.csv"
 	BLOCKINFOBEACON_FILE = "blkinfobeacon.csv"
 )
@@ -13,6 +13,7 @@ const (
 	FEATURESIZE     = "featureStateDB"
 	BLKSIZE         = "blocksize"
 	CONSENSUSSIZE   = "consensusStateDB"
+	TXSSTATESIZE    = "transactionStateDB"
 	REWARDSIZE      = "rewardStateDB"
 	SLASHSIZE       = "slashStateDB"
 	STOREROOTHASH   = "storeRootsHash"
@@ -55,6 +56,11 @@ const (
 	EPOCH            = "blkepoch"
 	TOTALBEACON      = "totalbeaconblks"
 	TOTALTXS         = "totaltxs"
+	TOTALXTXS        = "totalcrosstxs"
+	TXSSIZE          = "txssize"
+	TRADESIZE        = "txtradesize"
+	TRANFSIZE        = "txtfprisize"
+	INSSIZE          = "inssize"
 	TOTALINS         = "totalins"
 	SIZE             = "blksize"
 	BLKHEIGHT        = "blkheight"
@@ -75,29 +81,60 @@ const (
 	PROCSAL          = "processsalaryins"
 	PROSTORE         = "processstoreblk"
 	TOTAL            = "inserttime"
+
+	PROSTORETXVIEWT    = "processstoretxviewtime"
+	PROSTORETXVIEWS    = "processstoretxviewsize"
+	PROSTOREXTXVIEWT   = "processstorecrosstxviewtime"
+	PROSTOREXTXVIEWS   = "processstorecrosstxviewsize"
+	PROSTORETOKENINITT = "procstoretokeninittime"
+	PROSTORETOKENINITS = "procstoretokeninitsize"
+)
+
+const (
+	TXByPubkeySize = "txByPubkeySize"
+	TXBySerialSize = "txBySerialSize"
+	SerialNumSize  = "serialNumSize"
+	OTASize        = "OTASize"
+	OTABurnSize    = "OTABurnSize"
+	SNDSize        = "SNDSize"
+	SNDBurnSize    = "SNDBurnSize"
+	CMSize         = "totalcmSize"
+	CMBurnSize     = "totalcmBurnSize"
+	OCoinSize      = "totaloCoinSize"
+	OCoinBurnSize  = "totaloCoinBurnSize"
+
+	XOTASize       = "XSHARDOTASize"
+	XOTABurnSize   = "XSHARDOTABurnSize"
+	XSNDSize       = "XSHARDSNDSize"
+	XSNDBurnSize   = "XSHARDSNDBurnSize"
+	XCMSize        = "XSHARDtotalcmSize"
+	XCMBurnSize    = "XSHARDtotalcmBurnSize"
+	XOCoinSize     = "XSHARDtotaloCoinSize"
+	XOCoinBurnSize = "XSHARDtotaloCoinBurnSize"
 )
 
 var (
 	ColByFile = map[string][]string{
 		TIMESHARD_FILE: {
-			BLKHEIGHT,
-			VTXS,
-			VBLKSIG,
 			GETVIEW,
 			FETCHBLKSBC,
-			GETCOMMITTEE1,
-			GETCOMMITTEE2,
-			EPOCH,
 			TOTALBEACON,
+			GETCOMMITTEE2,
+			VBLKSIG,
+			VPREPROC,
+			VBSTATE,
+			VTXS,
+			UPBSTATE,
+			VPOSPROC,
+			PROCSAL,
+			PROSTORE,
+			TOTAL,
+			BLKHEIGHT,
+			EPOCH,
 			TOTALTXS,
 			TOTALINS,
-			UPBSTATE,
-			VBSTATE,
-			VPOSPROC,
-			VPREPROC,
 			VPREPROCGETBLKS,
 			VPREPROCUNMBLKS,
-			VPREPROCHKHEADER,
 			VPREPROCMERKLE,
 			VPREPROCCREINS,
 			VPREPROCGETFEE,
@@ -105,9 +142,8 @@ var (
 			VPREVMINERTXS,
 			VPREVRESPTXSMETA,
 			VPREVRESPTXSINS,
-			PROCSAL,
-			PROSTORE,
-			TOTAL,
+			PROSTORETXVIEWT,
+			PROSTOREXTXVIEWT,
 		},
 		DATABEACON_FILE: {
 			FEATURESIZE,
@@ -125,6 +161,42 @@ var (
 			TOTALINS,
 			BLKHEIGHT,
 			EPOCH,
+		},
+		DATASHARD_FILE: {
+			TOTALTXS,
+			TOTALXTXS,
+			TOTALINS,
+			EPOCH,
+			BLKHEIGHT,
+			PROSTORETOKENINITS,
+			TOTALBEACON,
+			PROSTORETXVIEWS,
+			PROSTOREXTXVIEWS,
+			CONSENSUSSIZE,
+			TXSSTATESIZE,
+			FEATURESIZE,
+			REWARDSIZE,
+			SLASHSIZE,
+			BLKSIZE,
+			OTASize,
+			OTABurnSize,
+			SNDSize,
+			SNDBurnSize,
+			CMSize,
+			CMBurnSize,
+			OCoinSize,
+			OCoinBurnSize,
+			TXByPubkeySize,
+			TXBySerialSize,
+			SerialNumSize,
+			XOTASize,
+			XOTABurnSize,
+			XSNDSize,
+			XSNDBurnSize,
+			XCMSize,
+			XCMBurnSize,
+			XOCoinSize,
+			XOCoinBurnSize,
 		},
 		TIMEBEACON_FILE: {
 			PROCSTORCONSENSUSTIME,

@@ -3,10 +3,11 @@ package blockchain
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strconv"
+
 	"github.com/incognitochain/incognito-chain/blockchain/types"
 	"github.com/incognitochain/incognito-chain/dataaccessobject/statedb"
 	"github.com/incognitochain/incognito-chain/metadata"
-	"strconv"
 )
 
 func (blockchain *BlockChain) processTokenInitInstructions(tokenInitStateDB *statedb.StateDB, block *types.BeaconBlock) {
@@ -42,7 +43,7 @@ func (blockchain *BlockChain) processTokenInitReq(tokenInitStateDB *statedb.Stat
 		return
 	}
 
-	err = statedb.StorePrivacyToken(
+	_, err = statedb.StorePrivacyToken(
 		tokenInitStateDB,
 		acceptedInst.TokenID,
 		acceptedInst.TokenName,

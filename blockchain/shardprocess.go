@@ -167,6 +167,10 @@ func (blockchain *BlockChain) InsertShardBlock(shardBlock *types.ShardBlock, sho
 	curView := preView.(*ShardBestState)
 	e := time.Since(st)
 	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.GETVIEW, fmt.Sprintf("%v", e.Microseconds()))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.TOTALTXS, fmt.Sprintf("%v", len(shardBlock.Body.Transactions)))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.TOTALXTXS, fmt.Sprintf("%v", len(shardBlock.Body.CrossTransactions)))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.TOTALINS, fmt.Sprintf("%v", len(shardBlock.Body.Instructions)))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.EPOCH, fmt.Sprintf("%v", shardBlock.Header.Epoch))
 	if blockHeight != curView.ShardHeight+1 {
 		return NewBlockChainError(InsertShardBlockError, fmt.Errorf("Not expected height, current view height %+v, incomming block height %+v", curView.ShardHeight, blockHeight))
 	}
@@ -312,6 +316,8 @@ func (blockchain *BlockChain) InsertShardBlock(shardBlock *types.ShardBlock, sho
 	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.TOTALTXS, fmt.Sprintf("%v", len(shardBlock.Body.Transactions)))
 	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.TOTALINS, fmt.Sprintf("%v", len(shardBlock.Body.Instructions)))
 	blockchain.reporter.WriteToFile(true, shardBlock.Header.Height, shardBlock.Header.Epoch, report.TIMESHARD_FILE)
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.BLKHEIGHT, fmt.Sprintf("%v", shardBlock.Header.Height))
+	blockchain.reporter.WriteToFile(true, shardBlock.Header.Height, shardBlock.Header.Epoch, report.DATASHARD_FILE)
 
 	return nil
 }
@@ -1076,11 +1082,15 @@ func (blockchain *BlockChain) processStoreShardBlock(
 	shardID := shardBlock.Header.ShardID
 	blockHeight := shardBlock.Header.Height
 	blockHash := shardBlock.Header.Hash()
-	err := blockchain.storeTokenInitInstructions(newShardState.transactionStateDB, beaconBlocks)
+	totalData := uint64(0)
+
+	datasize, err := blockchain.storeTokenInitInstructions(newShardState.transactionStateDB, beaconBlocks)
 	if err != nil {
 		return NewBlockChainError(StoreShardBlockError, fmt.Errorf("storeTokenInitInstructions error: %v", err))
 	}
-
+	totalData += datasize
+	blockchain.reporter.RecordData(shardBlock.GetHeight(), report.DATASHARD_FILE, report.PROSTORETOKENINITS, fmt.Sprintf("%v", datasize))
+	blockchain.reporter.RecordData(shardBlock.GetHeight(), report.DATASHARD_FILE, report.TOTALBEACON, fmt.Sprintf("%v", len(beaconBlocks)))
 	Logger.log.Infof("SHARD %+v | Process store block height %+v at hash %+v", shardBlock.Header.ShardID, blockHeight, *shardBlock.Hash())
 	if len(shardBlock.Body.CrossTransactions) != 0 {
 		Logger.log.Critical("processStoreShardBlock/CrossTransactions	", shardBlock.Body.CrossTransactions)
@@ -1089,10 +1099,14 @@ func (blockchain *BlockChain) processStoreShardBlock(
 	if blockHeight == 1 {
 		Logger.log.Infof("Genesis block of shard %v: %v, #txs: %v\n", shardID, blockHash.String(), len(shardBlock.Body.Transactions))
 	}
-
-	if err := blockchain.CreateAndSaveTxViewPointFromBlock(shardBlock, newShardState.transactionStateDB); err != nil {
+	st := time.Now()
+	if dataSize, err := blockchain.CreateAndSaveTxViewPointFromBlock(shardBlock, newShardState.transactionStateDB); err != nil {
 		return NewBlockChainError(FetchAndStoreTransactionError, err)
+	} else {
+		blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.PROSTORETXVIEWS, fmt.Sprintf("%v", dataSize))
 	}
+	e := time.Since(st)
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.PROSTORETXVIEWT, fmt.Sprintf("%v", e.Microseconds()))
 	listTxHashes := []string{}
 	for index, tx := range shardBlock.Body.Transactions {
 		Logger.log.Infof("Process storing tx %v, index %x, shard %v, height %v, blockHash %v\n", tx.Hash().String(), index, shardID, blockHeight, blockHash.String())
@@ -1134,10 +1148,16 @@ func (blockchain *BlockChain) processStoreShardBlock(
 			}
 		}
 	}
+	st = time.Now()
 	// Store Incomming Cross Shard
-	if err := blockchain.CreateAndSaveCrossTransactionViewPointFromBlock(shardBlock, newShardState.transactionStateDB); err != nil {
+	if dataSize, err := blockchain.CreateAndSaveCrossTransactionViewPointFromBlock(shardBlock, newShardState.transactionStateDB); err != nil {
 		return NewBlockChainError(FetchAndStoreCrossTransactionError, err)
+	} else {
+		blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.PROSTOREXTXVIEWS, fmt.Sprintf("%v", dataSize))
 	}
+	e = time.Since(st)
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.PROSTOREXTXVIEWT, fmt.Sprintf("%v", e.Microseconds()))
+
 	// Save result of BurningConfirm instruction to get proof later
 	metas := []string{ // Burning v1: sig on both beacon and bridge
 		strconv.Itoa(metadata.BurningConfirmMeta),
@@ -1190,18 +1210,19 @@ func (blockchain *BlockChain) processStoreShardBlock(
 	if err != nil {
 		return NewBlockChainError(StoreShardBlockError, err)
 	}
-	err = newShardState.consensusStateDB.Database().TrieDB().Commit(consensusRootHash, false) // Save data to disk database
+	datasize, err = newShardState.consensusStateDB.Database().TrieDB().CommitCustom(consensusRootHash, false) // Save data to disk database
 	if err != nil {
 		return NewBlockChainError(StoreShardBlockError, err)
 	}
-
+	blockchain.reporter.RecordData(shardBlock.GetHeight(), report.DATASHARD_FILE, report.CONSENSUSSIZE, fmt.Sprintf("%v", datasize))
 	newShardState.ConsensusStateDBRootHash = consensusRootHash
 	// transaction root hash
 	transactionRootHash, err := newShardState.transactionStateDB.Commit(true)
 	if err != nil {
 		return NewBlockChainError(StoreShardBlockError, err)
 	}
-	err = newShardState.transactionStateDB.Database().TrieDB().Commit(transactionRootHash, false)
+	datasize, err = newShardState.transactionStateDB.Database().TrieDB().CommitCustom(transactionRootHash, false)
+	blockchain.reporter.RecordData(shardBlock.GetHeight(), report.DATASHARD_FILE, report.TXSSTATESIZE, fmt.Sprintf("%v", datasize))
 	if err != nil {
 		return NewBlockChainError(StoreShardBlockError, err)
 	}
@@ -1211,7 +1232,8 @@ func (blockchain *BlockChain) processStoreShardBlock(
 	if err != nil {
 		return NewBlockChainError(StoreShardBlockError, err)
 	}
-	err = newShardState.featureStateDB.Database().TrieDB().Commit(featureRootHash, false)
+	datasize, err = newShardState.featureStateDB.Database().TrieDB().CommitCustom(featureRootHash, false)
+	blockchain.reporter.RecordData(shardBlock.GetHeight(), report.DATASHARD_FILE, report.FEATURESIZE, fmt.Sprintf("%v", datasize))
 	if err != nil {
 		return NewBlockChainError(StoreShardBlockError, err)
 	}
@@ -1221,20 +1243,22 @@ func (blockchain *BlockChain) processStoreShardBlock(
 	if err != nil {
 		return NewBlockChainError(StoreShardBlockError, err)
 	}
-	err = newShardState.rewardStateDB.Database().TrieDB().Commit(rewardRootHash, false)
+	datasize, err = newShardState.rewardStateDB.Database().TrieDB().CommitCustom(rewardRootHash, false)
 	if err != nil {
 		return NewBlockChainError(StoreShardBlockError, err)
 	}
+	blockchain.reporter.RecordData(shardBlock.GetHeight(), report.DATASHARD_FILE, report.REWARDSIZE, fmt.Sprintf("%v", datasize))
 	newShardState.RewardStateDBRootHash = rewardRootHash
 	// slash root hash
 	slashRootHash, err := newShardState.slashStateDB.Commit(true)
 	if err != nil {
 		return NewBlockChainError(StoreShardBlockError, err)
 	}
-	err = newShardState.slashStateDB.Database().TrieDB().Commit(slashRootHash, false)
+	datasize, err = newShardState.slashStateDB.Database().TrieDB().CommitCustom(slashRootHash, false)
 	if err != nil {
 		return NewBlockChainError(StoreShardBlockError, err)
 	}
+	blockchain.reporter.RecordData(shardBlock.GetHeight(), report.DATASHARD_FILE, report.SLASHSIZE, fmt.Sprintf("%v", datasize))
 	newShardState.consensusStateDB.ClearObjects()
 	newShardState.transactionStateDB.ClearObjects()
 	newShardState.featureStateDB.ClearObjects()
@@ -1258,6 +1282,9 @@ func (blockchain *BlockChain) processStoreShardBlock(
 	if err := rawdbv2.StoreShardBlock(batchData, blockHash, shardBlock); err != nil {
 		return NewBlockChainError(StoreShardBlockError, err)
 	}
+	shardBytes, _ := json.Marshal(shardBlock)
+	blkSize := len(shardBytes)
+	blockchain.reporter.RecordData(shardBlock.GetHeight(), report.DATASHARD_FILE, report.BLKSIZE, fmt.Sprintf("%v", blkSize))
 
 	err = newShardState.tryUpgradeCommitteeState(blockchain)
 	if err != nil {
@@ -1437,10 +1464,11 @@ func (blockchain *BlockChain) GetShardCommitteeFromBeaconHash(
 //	1. InitTokenRequestMeta - for user-customized tokens
 //	2. IssuingRequestMeta - for centralized bridge tokens
 //	3. IssuingETHRequestMeta - for centralized bridge tokens
-func (blockchain *BlockChain) storeTokenInitInstructions(stateDB *statedb.StateDB, beaconBlocks []*types.BeaconBlock) error {
+func (blockchain *BlockChain) storeTokenInitInstructions(stateDB *statedb.StateDB, beaconBlocks []*types.BeaconBlock) (uint64, error) {
+	totalData := uint64(0)
 	for _, block := range beaconBlocks {
 		instructions := block.Body.Instructions
-
+		dataSize := uint64(0)
 		for _, l := range instructions {
 			if len(l) < 4 {
 				continue
@@ -1451,7 +1479,7 @@ func (blockchain *BlockChain) storeTokenInitInstructions(stateDB *statedb.StateD
 
 			metaType, err := strconv.Atoi(l[0])
 			if err != nil {
-				return err
+				return 0, err
 			}
 			switch metaType {
 			case metadata.InitTokenRequestMeta:
@@ -1459,21 +1487,21 @@ func (blockchain *BlockChain) storeTokenInitInstructions(stateDB *statedb.StateD
 					acceptedContent, err := metadata.ParseInitTokenInstAcceptedContent(l[3])
 					if err != nil {
 						Logger.log.Errorf("ParseInitTokenInstAcceptedContent(%v) error: %v\n", l[3], err)
-						return err
+						return 0, err
 					}
 
 					if existed := statedb.PrivacyTokenIDExisted(stateDB, acceptedContent.TokenID); existed {
 						msgStr := fmt.Sprintf("init token %v existed, something might be wrong", acceptedContent.TokenID.String())
 						Logger.log.Infof(msgStr + "\n")
-						return fmt.Errorf(msgStr)
+						return 0, fmt.Errorf(msgStr)
 					}
 
-					err = statedb.StorePrivacyToken(stateDB, acceptedContent.TokenID, acceptedContent.TokenName,
+					dataSize, err = statedb.StorePrivacyToken(stateDB, acceptedContent.TokenID, acceptedContent.TokenName,
 						acceptedContent.TokenSymbol, statedb.InitToken, true, acceptedContent.Amount, []byte{}, acceptedContent.RequestedTxID,
 					)
 					if err != nil {
 						Logger.log.Errorf("StorePrivacyToken error: %v\n", err)
-						return err
+						return 0, err
 					}
 
 					Logger.log.Infof("store init token %v succeeded\n", acceptedContent.TokenID.String())
@@ -1485,7 +1513,7 @@ func (blockchain *BlockChain) storeTokenInitInstructions(stateDB *statedb.StateD
 					acceptedContent, err := metadata.ParseEVMIssuingInstAcceptedContent(l[3])
 					if err != nil {
 						Logger.log.Errorf("ParseEVMIssuingInstAcceptedContent(%v) error: %v\n", l[3], err)
-						return err
+						return 0, err
 					}
 
 					if existed := statedb.PrivacyTokenIDExisted(stateDB, acceptedContent.IncTokenID); existed {
@@ -1493,12 +1521,12 @@ func (blockchain *BlockChain) storeTokenInitInstructions(stateDB *statedb.StateD
 						continue
 					}
 
-					err = statedb.StorePrivacyToken(stateDB, acceptedContent.IncTokenID, "",
+					dataSize, err = statedb.StorePrivacyToken(stateDB, acceptedContent.IncTokenID, "",
 						"", statedb.BridgeToken, true, acceptedContent.IssuingAmount, []byte{}, acceptedContent.TxReqID,
 					)
 					if err != nil {
 						Logger.log.Errorf("StorePrivacyToken error: %v\n", err)
-						return err
+						return 0, err
 					}
 
 					Logger.log.Infof("store eth-isssued token %v succeeded\n", acceptedContent.IncTokenID.String())
@@ -1509,7 +1537,7 @@ func (blockchain *BlockChain) storeTokenInitInstructions(stateDB *statedb.StateD
 					acceptedContent, err := metadata.ParseIssuingInstAcceptedContent(l[3])
 					if err != nil {
 						Logger.log.Errorf("ParseIssuingInstAcceptedContent(%v) error: %v\n", l[3], err)
-						return err
+						return 0, err
 					}
 
 					if existed := statedb.PrivacyTokenIDExisted(stateDB, acceptedContent.IncTokenID); existed {
@@ -1517,19 +1545,19 @@ func (blockchain *BlockChain) storeTokenInitInstructions(stateDB *statedb.StateD
 						continue
 					}
 
-					err = statedb.StorePrivacyToken(stateDB, acceptedContent.IncTokenID, acceptedContent.IncTokenName,
+					dataSize, err = statedb.StorePrivacyToken(stateDB, acceptedContent.IncTokenID, acceptedContent.IncTokenName,
 						acceptedContent.IncTokenName, statedb.BridgeToken, true, acceptedContent.DepositedAmount, []byte{}, acceptedContent.TxReqID,
 					)
 					if err != nil {
 						Logger.log.Errorf("StorePrivacyToken error: %v\n", err)
-						return err
+						return 0, err
 					}
 
 					Logger.log.Infof("store issued token %v succeeded\n", acceptedContent.IncTokenID.String())
 				}
 			}
+			totalData += dataSize
 		}
 	}
-
-	return nil
+	return totalData, nil
 }

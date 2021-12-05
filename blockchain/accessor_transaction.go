@@ -3,6 +3,7 @@ package blockchain
 import (
 	"fmt"
 
+	"github.com/incognitochain/incognito-chain/blockchain/report"
 	"github.com/incognitochain/incognito-chain/blockchain/types"
 	"github.com/incognitochain/incognito-chain/config"
 	coinIndexer "github.com/incognitochain/incognito-chain/transaction/coin_indexer"
@@ -72,7 +73,7 @@ func storePRV(transactionStateRoot *statedb.StateDB) error {
 	amount := uint64(0)
 	info := []byte{}
 	txHash := common.Hash{}
-	err := statedb.StorePrivacyToken(transactionStateRoot, tokenID, name, symbol, tokenType, mintable, amount, info, txHash)
+	_, err := statedb.StorePrivacyToken(transactionStateRoot, tokenID, name, symbol, tokenType, mintable, amount, info, txHash)
 	if err != nil {
 		return err
 	}
@@ -660,12 +661,13 @@ func (blockchain *BlockChain) TryGetAllOutputCoinsByKeyset(keyset *incognitokey.
 // CreateAndSaveTxViewPointFromBlock - fetch data from block, put into txviewpoint variable and save into db
 // still storage full data of commitments, serial number, snderivator to check double spend
 // this function only work for transaction transfer token/prv within shard
-func (blockchain *BlockChain) CreateAndSaveTxViewPointFromBlock(shardBlock *types.ShardBlock, transactionStateRoot *statedb.StateDB) error {
+func (blockchain *BlockChain) CreateAndSaveTxViewPointFromBlock(shardBlock *types.ShardBlock, transactionStateRoot *statedb.StateDB) (uint64, error) {
 	// Fetch data from shardBlock into tx View point
+	totalData := uint64(0)
 	if shardBlock.Header.Height == 1 {
 		err := storePRV(transactionStateRoot)
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
 	var err error
@@ -673,7 +675,7 @@ func (blockchain *BlockChain) CreateAndSaveTxViewPointFromBlock(shardBlock *type
 	view := NewTxViewPoint(shardBlock.Header.ShardID, shardBlock.Header.Height)
 	err = view.fetchTxViewPointFromBlock(transactionStateRoot, shardBlock)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	// check privacy custom token
 	// sort by index
@@ -682,13 +684,29 @@ func (blockchain *BlockChain) CreateAndSaveTxViewPointFromBlock(shardBlock *type
 		indices = append(indices, int(index))
 	}
 	sort.Ints(indices)
+	priTokenSize := uint64(0)
+	priTokenTxSize := uint64(0)
+	serialNumSize := uint64(0)
+	OTASize := uint64(0)
+	OTABurnSize := uint64(0)
+	SNDSize := uint64(0)
+	SNDBurnSize := uint64(0)
+	dataSize := uint64(0)
+	oCoinSize := uint64(0)
+	cmSize := uint64(0)
+	oCoinBurnSize := uint64(0)
+	cmBurnSize := uint64(0)
+	totaloCoinSize := uint64(0)
+	totalcmSize := uint64(0)
+	totaloCoinBurnSize := uint64(0)
+	totalcmBurnSize := uint64(0)
 	for _, indexTx := range indices {
 		privacyCustomTokenSubView := view.privacyCustomTokenViewPoint[int32(indexTx)]
 		privacyCustomTokenTx := view.privacyCustomTokenTxs[int32(indexTx)]
 		tokenData := privacyCustomTokenTx.GetTxTokenData()
 		isBridgeToken, err := statedb.IsBridgeToken(bridgeStateDB, tokenData.PropertyID)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		switch tokenData.Type {
 		case transaction.CustomTokenInit:
@@ -709,9 +727,10 @@ func (blockchain *BlockChain) CreateAndSaveTxViewPointFromBlock(shardBlock *type
 						tokenType = statedb.BridgeToken
 					}
 					Logger.log.Info("Store custom token when it is issued", tokenData.PropertyID, tokenData.PropertySymbol, tokenData.PropertyName)
-					err := statedb.StorePrivacyToken(transactionStateRoot, tokenID, name, symbol, tokenType, mintable, amount, info, txHash)
+					dataSize, err := statedb.StorePrivacyToken(transactionStateRoot, tokenID, name, symbol, tokenType, mintable, amount, info, txHash)
+					priTokenSize += dataSize
 					if err != nil {
-						return err
+						return 0, err
 					}
 				}
 			}
@@ -720,78 +739,120 @@ func (blockchain *BlockChain) CreateAndSaveTxViewPointFromBlock(shardBlock *type
 				Logger.log.Infof("Transfer custom token %+v", privacyCustomTokenTx)
 			}
 		}
-		err = statedb.StorePrivacyTokenTx(transactionStateRoot, tokenData.PropertyID, *privacyCustomTokenTx.Hash())
+		dataSize, err = statedb.StorePrivacyTokenTx(transactionStateRoot, tokenData.PropertyID, *privacyCustomTokenTx.Hash())
 		if err != nil {
-			return err
+			return 0, err
 		}
+		priTokenTxSize += dataSize
 
-		err = blockchain.StoreSerialNumbersFromTxViewPoint(transactionStateRoot, *privacyCustomTokenSubView)
+		dataSize, err = blockchain.StoreSerialNumbersFromTxViewPoint(transactionStateRoot, *privacyCustomTokenSubView)
 		if err != nil {
-			return err
+			return 0, err
 		}
+		serialNumSize += dataSize
 
-		err = blockchain.StoreCommitmentsFromTxViewPoint(transactionStateRoot, *privacyCustomTokenSubView, shardBlock.Header.ShardID)
+		oCoinSize, cmSize, oCoinBurnSize, cmBurnSize, err = blockchain.StoreCommitmentsFromTxViewPoint(transactionStateRoot, *privacyCustomTokenSubView, shardBlock.Header.ShardID)
 		if err != nil {
-			return err
+			return 0, err
 		}
+		totaloCoinSize += oCoinSize
+		totalcmSize += cmSize
+		totaloCoinBurnSize += oCoinBurnSize
+		totalcmBurnSize += cmBurnSize
 
-		err = blockchain.StoreOnetimeAddressesFromTxViewPoint(transactionStateRoot, *privacyCustomTokenSubView, shardBlock.Header.ShardID)
+		otaSize, otaBurnSize, err := blockchain.StoreOnetimeAddressesFromTxViewPoint(transactionStateRoot, *privacyCustomTokenSubView, shardBlock.Header.ShardID)
 		if err != nil {
-			return err
+			return 0, err
 		}
+		OTASize += otaSize
+		OTABurnSize += otaBurnSize
 
-		err = blockchain.StoreSNDerivatorsFromTxViewPoint(transactionStateRoot, *privacyCustomTokenSubView)
+		sndSize, sndBurn, err := blockchain.StoreSNDerivatorsFromTxViewPoint(transactionStateRoot, *privacyCustomTokenSubView)
 		if err != nil {
-			return err
+			return 0, err
 		}
+		SNDSize += sndSize
+		SNDBurnSize += sndBurn
+
 	}
 
 	// updateShardBestState the list serialNumber and commitment, snd set using the state of the used tx view point. This
 	// entails adding the new
 	// ones created by the shardBlock.
-	err = blockchain.StoreSerialNumbersFromTxViewPoint(transactionStateRoot, *view)
+	dataSize, err = blockchain.StoreSerialNumbersFromTxViewPoint(transactionStateRoot, *view)
 	if err != nil {
-		return err
+		return 0, err
+	}
+	serialNumSize += dataSize
+
+	oCoinSize, cmSize, oCoinBurnSize, cmBurnSize, err = blockchain.StoreCommitmentsFromTxViewPoint(transactionStateRoot, *view, shardBlock.Header.ShardID)
+	if err != nil {
+		return 0, err
+	}
+	totaloCoinSize += oCoinSize
+	totalcmSize += cmSize
+	totaloCoinBurnSize += oCoinBurnSize
+	totalcmBurnSize += cmBurnSize
+
+	otaSize, otaBurnSize, err := blockchain.StoreOnetimeAddressesFromTxViewPoint(transactionStateRoot, *view, shardBlock.Header.ShardID)
+	if err != nil {
+		return 0, err
+	}
+	OTASize += otaSize
+	OTABurnSize += otaBurnSize
+	sndSize, sndBurn, err := blockchain.StoreSNDerivatorsFromTxViewPoint(transactionStateRoot, *view)
+	if err != nil {
+		return 0, err
+	}
+	SNDSize += sndSize
+	SNDBurnSize += sndBurn
+	txByPubkeySize, err := blockchain.StoreTxByPublicKey(blockchain.GetShardChainDatabase(shardBlock.Header.ShardID), view)
+	if err != nil {
+		return 0, err
 	}
 
-	err = blockchain.StoreCommitmentsFromTxViewPoint(transactionStateRoot, *view, shardBlock.Header.ShardID)
+	txBySerialSize, err := blockchain.StoreTxBySerialNumber(shardBlock.Body.Transactions, shardBlock.Header.ShardID)
 	if err != nil {
-		return err
+		return 0, err
 	}
+	totalData = txByPubkeySize + txBySerialSize + OTASize + OTABurnSize + SNDSize + SNDBurnSize + totalcmSize + totalcmBurnSize + totaloCoinSize + totaloCoinBurnSize + serialNumSize
 
-	err = blockchain.StoreOnetimeAddressesFromTxViewPoint(transactionStateRoot, *view, shardBlock.Header.ShardID)
-	if err != nil {
-		return err
-	}
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.OTASize, fmt.Sprintf("%v", OTASize))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.OTABurnSize, fmt.Sprintf("%v", OTABurnSize))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.SNDSize, fmt.Sprintf("%v", SNDSize))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.SNDBurnSize, fmt.Sprintf("%v", SNDBurnSize))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.CMSize, fmt.Sprintf("%v", totalcmSize))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.CMBurnSize, fmt.Sprintf("%v", totalcmBurnSize))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.OCoinSize, fmt.Sprintf("%v", totaloCoinSize))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.OCoinBurnSize, fmt.Sprintf("%v", totaloCoinBurnSize))
 
-	err = blockchain.StoreSNDerivatorsFromTxViewPoint(transactionStateRoot, *view)
-	if err != nil {
-		return err
-	}
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.TXByPubkeySize, fmt.Sprintf("%v", txByPubkeySize))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.TXBySerialSize, fmt.Sprintf("%v", txBySerialSize))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.SerialNumSize, fmt.Sprintf("%v", serialNumSize))
 
-	err = blockchain.StoreTxByPublicKey(blockchain.GetShardChainDatabase(shardBlock.Header.ShardID), view)
-	if err != nil {
-		return err
-	}
-
-	err = blockchain.StoreTxBySerialNumber(shardBlock.Body.Transactions, shardBlock.Header.ShardID)
-	if err != nil {
-		return err
-	}
-	return nil
+	return totalData, nil
 }
 
-func (blockchain *BlockChain) StoreSerialNumbersFromTxViewPoint(stateDB *statedb.StateDB, view TxViewPoint) error {
+func (blockchain *BlockChain) StoreSerialNumbersFromTxViewPoint(stateDB *statedb.StateDB, view TxViewPoint) (uint64, error) {
+	total := uint64(0)
 	if len(view.listSerialNumbers) > 0 {
-		err := statedb.StoreSerialNumbers(stateDB, *view.tokenID, view.listSerialNumbers, view.shardID)
+		dataSize, err := statedb.StoreSerialNumbers(stateDB, *view.tokenID, view.listSerialNumbers, view.shardID)
 		if err != nil {
-			return err
+			return 0, err
 		}
+		total += dataSize
 	}
-	return nil
+	return total, nil
 }
 
-func (blockchain *BlockChain) StoreSNDerivatorsFromTxViewPoint(stateDB *statedb.StateDB, view TxViewPoint) error {
+func (blockchain *BlockChain) StoreSNDerivatorsFromTxViewPoint(stateDB *statedb.StateDB, view TxViewPoint) (
+	sndSize uint64,
+	sndBurn uint64,
+	err error,
+) {
+	sndSize = uint64(0)
+	sndBurn = uint64(0)
+
 	keys := make([]string, 0, len(view.mapCommitments))
 	for k := range view.mapCommitments {
 		keys = append(keys, k)
@@ -799,41 +860,55 @@ func (blockchain *BlockChain) StoreSNDerivatorsFromTxViewPoint(stateDB *statedb.
 	sort.Strings(keys)
 	for _, k := range keys {
 		snDsArray := view.mapSnD[k]
-		err := statedb.StoreSNDerivators(stateDB, *view.tokenID, snDsArray)
+		dataSize, err := statedb.StoreSNDerivators(stateDB, *view.tokenID, snDsArray)
 		if err != nil {
-			return err
+			return 0, 0, err
+		}
+		if (k == common.BurningAddress) || (k == common.BurningAddress2) {
+			sndBurn += dataSize
+		} else {
+			sndSize += dataSize
 		}
 	}
-	return nil
+	return sndSize, sndBurn, nil
 }
 
-func (blockchain *BlockChain) StoreTxByPublicKey(db incdb.Database, view *TxViewPoint) error {
+func (blockchain *BlockChain) StoreTxByPublicKey(db incdb.Database, view *TxViewPoint) (uint64, error) {
+	totalData := uint64(0)
 	for data := range view.txByPubKey {
 		dataArr := strings.Split(data, "_")
 		pubKey, _, err := base58.Base58Check{}.Decode(dataArr[0])
 		if err != nil {
-			return err
+			return 0, err
 		}
 		txIDInByte, _, err := base58.Base58Check{}.Decode(dataArr[1])
 		if err != nil {
-			return err
+			return 0, err
 		}
 		txID := common.Hash{}
 		err = txID.SetBytes(txIDInByte)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		shardID, _ := strconv.Atoi(dataArr[2])
 
 		err = rawdbv2.StoreTxByPublicKey(db, pubKey, txID, byte(shardID))
+		totalData += uint64(len(pubKey) + len(txID.Bytes()))
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
-	return nil
+	return totalData, nil
 }
 
-func (blockchain *BlockChain) StoreOnetimeAddressesFromTxViewPoint(stateDB *statedb.StateDB, view TxViewPoint, shardID byte) error {
+func (blockchain *BlockChain) StoreOnetimeAddressesFromTxViewPoint(stateDB *statedb.StateDB, view TxViewPoint, shardID byte) (
+	otaSize uint64,
+	otaBurnSize uint64,
+	err error,
+) {
+	otaSize = uint64(0)
+	otaBurnSize = uint64(0)
+	dataSize := uint64(0)
 	// commitment and output are the same key in map
 	keys := make([]string, 0, len(view.mapCommitments))
 	for k := range view.mapCommitments {
@@ -843,7 +918,7 @@ func (blockchain *BlockChain) StoreOnetimeAddressesFromTxViewPoint(stateDB *stat
 
 	for _, decl := range view.otaDeclarations {
 		if err := statedb.StoreOccupiedOneTimeAddress(stateDB, decl.TokenID, decl.PublicKey); err != nil {
-			return err
+			return 0, 0, err
 		}
 	}
 
@@ -851,7 +926,7 @@ func (blockchain *BlockChain) StoreOnetimeAddressesFromTxViewPoint(stateDB *stat
 	for _, publicKey := range keys {
 		publicKeyBytes, _, err := base58.Base58Check{}.Decode(publicKey)
 		if err != nil {
-			return err
+			return 0, 0, err
 		}
 		publicKeyShardID := common.GetShardIDFromLastByte(publicKeyBytes[len(publicKeyBytes)-1])
 		if publicKeyShardID == shardID {
@@ -893,30 +968,49 @@ func (blockchain *BlockChain) StoreOnetimeAddressesFromTxViewPoint(stateDB *stat
 				otaCoinArray = append(otaCoinArray, outputCoin.Bytes())
 				onetimeAddressArray = append(onetimeAddressArray, outputCoin.GetPublicKey().ToBytesS())
 			}
-			if err = statedb.StoreOTACoinsAndOnetimeAddresses(stateDB, *view.tokenID, view.height, otaCoinArray, onetimeAddressArray, publicKeyShardID); err != nil {
-				return err
+			if dataSize, err = statedb.StoreOTACoinsAndOnetimeAddresses(stateDB, *view.tokenID, view.height, otaCoinArray, onetimeAddressArray, publicKeyShardID); err != nil {
+				return 0, 0, err
+			}
+			if common.IsPublicKeyBurningAddress(publicKeyBytes) {
+				otaBurnSize += dataSize
+			} else {
+				otaSize += dataSize
 			}
 		}
 	}
 
-	return nil
+	return otaSize, otaBurnSize, nil
 }
 
-func (blockchain *BlockChain) StoreCommitmentsFromTxViewPoint(stateDB *statedb.StateDB, view TxViewPoint, shardID byte) error {
+func (blockchain *BlockChain) StoreCommitmentsFromTxViewPoint(stateDB *statedb.StateDB, view TxViewPoint, shardID byte) (
+	oCoinSize uint64,
+	commSize uint64,
+	oCoinBurnSize uint64,
+	commBurnSize uint64,
+	err error,
+) {
 	// commitment and output are the same key in map
 	keys := make([]string, 0, len(view.mapCommitments))
 	for k := range view.mapCommitments {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	oCoinSize = uint64(0)
+	commSize = uint64(0)
+	oCoinBurnSize = uint64(0)
+	commBurnSize = uint64(0)
+	err = nil
+	dataSize := uint64(0)
 
 	// Start to store to db
 	for _, publicKey := range keys {
 		publicKeyBytes, _, err := base58.Base58Check{}.Decode(publicKey)
 		if err != nil {
-			return err
+			return oCoinSize, commSize, oCoinBurnSize, commBurnSize, err
 		}
 		publicKeyShardID := common.GetShardIDFromLastByte(publicKeyBytes[len(publicKeyBytes)-1])
+		totalCM := uint64(0)
+		totalOC := uint64(0)
 		if publicKeyShardID == shardID {
 			// outputs
 			outputCoinArray := view.mapOutputCoins[publicKey]
@@ -926,18 +1020,19 @@ func (blockchain *BlockChain) StoreCommitmentsFromTxViewPoint(stateDB *statedb.S
 					outputCoinBytesArray = append(outputCoinBytesArray, outputCoin.Bytes())
 				}
 			}
-			err = statedb.StoreOutputCoins(stateDB, *view.tokenID, publicKeyBytes, outputCoinBytesArray, publicKeyShardID)
+			dataSize, err = statedb.StoreOutputCoins(stateDB, *view.tokenID, publicKeyBytes, outputCoinBytesArray, publicKeyShardID)
 			if err != nil {
-				return err
+				return oCoinSize, commSize, oCoinBurnSize, commBurnSize, err
 			}
+			totalOC += dataSize
 
 			// commitment
 			commitmentsArray := view.mapCommitments[publicKey]
-			err = statedb.StoreCommitments(stateDB, *view.tokenID, commitmentsArray, view.shardID)
+			dataSize, err = statedb.StoreCommitments(stateDB, *view.tokenID, commitmentsArray, view.shardID)
 			if err != nil {
-				return err
+				return oCoinSize, commSize, oCoinBurnSize, commBurnSize, err
 			}
-
+			totalCM += dataSize
 			//Logger.log.Infof("BUGLOG4 finished storing %v cmts of pk %v\n", len(commitmentsArray), publicKey)
 
 			// clear cached data
@@ -951,20 +1046,42 @@ func (blockchain *BlockChain) StoreCommitmentsFromTxViewPoint(stateDB *statedb.S
 				}
 			}
 		}
+		if common.IsPublicKeyBurningAddress(publicKeyBytes) {
+			oCoinBurnSize += totalOC
+			commBurnSize += totalCM
+		} else {
+			oCoinSize += totalOC
+			commSize += totalCM
+		}
 	}
-	return nil
+	return oCoinSize, commSize, oCoinBurnSize, commBurnSize, err
 }
 
-func (blockchain *BlockChain) CreateAndSaveCrossTransactionViewPointFromBlock(shardBlock *types.ShardBlock, transactionStateRoot *statedb.StateDB) error {
+func (blockchain *BlockChain) CreateAndSaveCrossTransactionViewPointFromBlock(shardBlock *types.ShardBlock, transactionStateRoot *statedb.StateDB) (uint64, error) {
+	totalData := uint64(0)
 	Logger.log.Critical("Fetch Cross transaction", shardBlock.Body.CrossTransactions)
 	// Fetch data from block into tx View point
 	view := NewTxViewPoint(shardBlock.Header.ShardID, shardBlock.Header.Height)
 	err := view.fetchCrossTransactionViewPointFromBlock(transactionStateRoot, shardBlock)
 	if err != nil {
 		Logger.log.Error("CreateAndSaveCrossTransactionCoinViewPointFromBlock ", err)
-		return err
+		return 0, err
 	}
-
+	priTokenSize := uint64(0)
+	// priTokenTxSize := uint64(0)
+	// serialNumSize := uint64(0)
+	OTASize := uint64(0)
+	OTABurnSize := uint64(0)
+	SNDSize := uint64(0)
+	SNDBurnSize := uint64(0)
+	oCoinSize := uint64(0)
+	cmSize := uint64(0)
+	oCoinBurnSize := uint64(0)
+	cmBurnSize := uint64(0)
+	totaloCoinSize := uint64(0)
+	totalcmSize := uint64(0)
+	totaloCoinBurnSize := uint64(0)
+	totalcmBurnSize := uint64(0)
 	// sort by index
 	indices := []int{}
 	for index := range view.privacyCustomTokenViewPoint {
@@ -984,51 +1101,76 @@ func (blockchain *BlockChain) CreateAndSaveCrossTransactionViewPointFromBlock(sh
 			mintable := privacyCustomTokenSubView.privacyCustomTokenMetadata.Mintable
 			amount := privacyCustomTokenSubView.privacyCustomTokenMetadata.Amount
 			info := []byte{}
-			if err := statedb.StorePrivacyToken(transactionStateRoot, tokenID, name, symbol, statedb.CrossShardToken, mintable, amount, info, common.Hash{}); err != nil {
-				return err
+			if dataSize, err := statedb.StorePrivacyToken(transactionStateRoot, tokenID, name, symbol, statedb.CrossShardToken, mintable, amount, info, common.Hash{}); err != nil {
+				return 0, err
+			} else {
+				priTokenSize += dataSize
 			}
 		}
 		// Store both commitment and outcoin
-		err = blockchain.StoreCommitmentsFromTxViewPoint(transactionStateRoot, *privacyCustomTokenSubView, shardBlock.Header.ShardID)
+		oCoinSize, cmSize, oCoinBurnSize, cmBurnSize, err = blockchain.StoreCommitmentsFromTxViewPoint(transactionStateRoot, *privacyCustomTokenSubView, shardBlock.Header.ShardID)
 		if err != nil {
-			return err
+			return 0, err
 		}
+		totaloCoinSize += oCoinSize
+		totalcmSize += cmSize
+		totaloCoinBurnSize += oCoinBurnSize
+		totalcmBurnSize += cmBurnSize
 
-		err = blockchain.StoreOnetimeAddressesFromTxViewPoint(transactionStateRoot, *privacyCustomTokenSubView, shardBlock.Header.ShardID)
+		otaSize, otaBurnSize, err := blockchain.StoreOnetimeAddressesFromTxViewPoint(transactionStateRoot, *privacyCustomTokenSubView, shardBlock.Header.ShardID)
 		if err != nil {
-			return err
+			return 0, err
 		}
-
+		OTASize += otaSize
+		OTABurnSize += otaBurnSize
 		// store snd
-		err = blockchain.StoreSNDerivatorsFromTxViewPoint(transactionStateRoot, *privacyCustomTokenSubView)
+		sndSize, sndBurn, err := blockchain.StoreSNDerivatorsFromTxViewPoint(transactionStateRoot, *privacyCustomTokenSubView)
 		if err != nil {
-			return err
+			return 0, err
 		}
+		SNDSize += sndSize
+		SNDBurnSize += sndBurn
 	}
 	// store commitment
-	err = blockchain.StoreCommitmentsFromTxViewPoint(transactionStateRoot, *view, shardBlock.Header.ShardID)
+	oCoinSize, cmSize, oCoinBurnSize, cmBurnSize, err = blockchain.StoreCommitmentsFromTxViewPoint(transactionStateRoot, *view, shardBlock.Header.ShardID)
 	if err != nil {
-		return err
+		return 0, err
 	}
+	totaloCoinSize += oCoinSize
+	totalcmSize += cmSize
+	totaloCoinBurnSize += oCoinBurnSize
+	totalcmBurnSize += cmBurnSize
 
 	// store otas
-	err = blockchain.StoreOnetimeAddressesFromTxViewPoint(transactionStateRoot, *view, shardBlock.Header.ShardID)
+	otaSize, otaBurnSize, err := blockchain.StoreOnetimeAddressesFromTxViewPoint(transactionStateRoot, *view, shardBlock.Header.ShardID)
 	if err != nil {
-		return err
+		return 0, err
 	}
-
+	OTASize += otaSize
+	OTABurnSize += otaBurnSize
 	// store snd
-	err = blockchain.StoreSNDerivatorsFromTxViewPoint(transactionStateRoot, *view)
+	sndSize, sndBurn, err := blockchain.StoreSNDerivatorsFromTxViewPoint(transactionStateRoot, *view)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return nil
+	SNDSize += sndSize
+	SNDBurnSize += sndBurn
+	totalData = OTASize + OTABurnSize + SNDSize + SNDBurnSize + totalcmSize + totalcmBurnSize + totaloCoinSize + totaloCoinBurnSize
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.XOTASize, fmt.Sprintf("%v", OTASize))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.XOTABurnSize, fmt.Sprintf("%v", OTABurnSize))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.XSNDSize, fmt.Sprintf("%v", SNDSize))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.XSNDBurnSize, fmt.Sprintf("%v", SNDBurnSize))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.XCMSize, fmt.Sprintf("%v", totalcmSize))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.XCMBurnSize, fmt.Sprintf("%v", totalcmBurnSize))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.XOCoinSize, fmt.Sprintf("%v", totaloCoinSize))
+	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.XOCoinBurnSize, fmt.Sprintf("%v", totaloCoinBurnSize))
+	return totalData, nil
 }
 
-func (blockchain *BlockChain) StoreTxBySerialNumber(txList []metadata.Transaction, shardID byte) error {
+func (blockchain *BlockChain) StoreTxBySerialNumber(txList []metadata.Transaction, shardID byte) (uint64, error) {
 	var err error
 	db := blockchain.GetShardChainDatabase(shardID)
-
+	totalData := uint64(0)
 	for _, tx := range txList {
 		//if tx.GetVersion() < 2 {//Only process txver2
 		//	continue
@@ -1040,7 +1182,7 @@ func (blockchain *BlockChain) StoreTxBySerialNumber(txList []metadata.Transactio
 		if tokenID.String() != common.PRVIDStr {
 			txToken, ok := tx.(transaction.TransactionToken)
 			if !ok {
-				return fmt.Errorf("cannot parse tx %v to transactionToken", txHash.String())
+				return 0, fmt.Errorf("cannot parse tx %v to transactionToken", txHash.String())
 			}
 
 			txFee := txToken.GetTxBase()
@@ -1050,9 +1192,10 @@ func (blockchain *BlockChain) StoreTxBySerialNumber(txList []metadata.Transactio
 				for _, inputCoin := range txFee.GetProof().GetInputCoins() {
 					serialNumber := inputCoin.GetKeyImage().ToBytesS()
 					err = rawdbv2.StoreTxBySerialNumber(db, serialNumber, common.PRVCoinID, shardID, txHash)
+					totalData += uint64(len(serialNumber) + len(common.PRVCoinID.Bytes()) + len(txHash.Bytes()))
 					if err != nil {
 						Logger.log.Errorf("StoreTxBySerialNumber with serialNumber %v, tokenID %v, shardID %v, txHash %v returns an error: %v\n", serialNumber, common.PRVCoinID.String(), shardID, txHash.String())
-						return err
+						return 0, err
 					}
 				}
 			} else {
@@ -1064,9 +1207,10 @@ func (blockchain *BlockChain) StoreTxBySerialNumber(txList []metadata.Transactio
 				for _, inputCoin := range txNormal.GetProof().GetInputCoins() {
 					serialNumber := inputCoin.GetKeyImage().ToBytesS()
 					err = rawdbv2.StoreTxBySerialNumber(db, serialNumber, tokenID, shardID, txHash)
+					totalData += uint64(len(serialNumber) + len(tokenID.Bytes()) + len(txHash.Bytes()))
 					if err != nil {
 						Logger.log.Errorf("StoreTxBySerialNumber with serialNumber %v, tokenID %v, shardID %v, txHash %v returns an error: %v\n", serialNumber, tokenID.String(), shardID, txHash.String())
-						return err
+						return 0, err
 					}
 				}
 			} else {
@@ -1077,9 +1221,10 @@ func (blockchain *BlockChain) StoreTxBySerialNumber(txList []metadata.Transactio
 				for _, inputCoin := range tx.GetProof().GetInputCoins() {
 					serialNumber := inputCoin.GetKeyImage().ToBytesS()
 					err = rawdbv2.StoreTxBySerialNumber(db, serialNumber, tokenID, shardID, txHash)
+					totalData += uint64(len(serialNumber) + len(common.PRVCoinID.Bytes()) + len(txHash.Bytes()))
 					if err != nil {
 						Logger.log.Errorf("StoreTxBySerialNumber with serialNumber %v, tokenID %v, shardID %v, txHash %v returns an error: %v\n", serialNumber, tokenID.String(), shardID, txHash.String())
-						return err
+						return 0, err
 					}
 				}
 			} else {
@@ -1090,5 +1235,5 @@ func (blockchain *BlockChain) StoreTxBySerialNumber(txList []metadata.Transactio
 
 	Logger.log.Infof("Finish StoreTxBySerialNumber, #txs: %v!!!\n", len(txList))
 
-	return nil
+	return totalData, nil
 }

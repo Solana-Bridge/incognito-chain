@@ -1,26 +1,33 @@
 package statedb
 
 import (
-	"fmt"
 	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
 
 	"github.com/incognitochain/incognito-chain/common"
 	"github.com/incognitochain/incognito-chain/common/base58"
 )
 
-func StoreSerialNumbers(stateDB *StateDB, tokenID common.Hash, serialNumbers [][]byte, shardID byte) error {
+func StoreSerialNumbers(stateDB *StateDB, tokenID common.Hash, serialNumbers [][]byte, shardID byte) (uint64, error) {
+	totalData := uint64(0)
 	tokenID = common.ConfidentialAssetID
 	for _, serialNumber := range serialNumbers {
 		key := GenerateSerialNumberObjectKey(tokenID, shardID, serialNumber)
 		value := NewSerialNumberStateWithValue(tokenID, shardID, serialNumber)
-		err := stateDB.SetStateObject(SerialNumberObjectType, key, value)
+		valueBytes, err := json.Marshal(value)
 		if err != nil {
-			return NewStatedbError(StoreSerialNumberError, err)
+			return 0, NewStatedbError(StoreSerialNumberError, err)
+		}
+		totalData += uint64(len(valueBytes))
+		err = stateDB.SetStateObject(SerialNumberObjectType, key, value)
+		if err != nil {
+			return 0, NewStatedbError(StoreSerialNumberError, err)
 		}
 	}
-	return nil
+	return totalData, nil
 }
 
 func HasSerialNumber(stateDB *StateDB, tokenID common.Hash, serialNumber []byte, shardID byte) (bool, error) {
@@ -61,11 +68,12 @@ func ListSerialNumber(stateDB *StateDB, tokenID common.Hash, shardID byte) (map[
 	return m, nil
 }
 
-func StoreCommitments(stateDB *StateDB, tokenID common.Hash, commitments [][]byte, shardID byte) error {
+func StoreCommitments(stateDB *StateDB, tokenID common.Hash, commitments [][]byte, shardID byte) (uint64, error) {
+	totalData := uint64(0)
 	commitmentLengthKey := GenerateCommitmentLengthObjectKey(tokenID, shardID)
 	commitmentLength, has, err := stateDB.getCommitmentLengthState(commitmentLengthKey)
 	if err != nil {
-		return NewStatedbError(GetCommitmentLengthError, err)
+		return 0, NewStatedbError(GetCommitmentLengthError, err)
 	}
 	if !has {
 		commitmentLength.SetBytes([]byte{0})
@@ -77,9 +85,11 @@ func StoreCommitments(stateDB *StateDB, tokenID common.Hash, commitments [][]byt
 		// store commitment
 		keyCommitment := GenerateCommitmentObjectKey(tokenID, shardID, commitment)
 		valueCommitment := NewCommitmentStateWithValue(tokenID, shardID, commitment, commitmentLength)
+		valueBytes, err := json.Marshal(valueCommitment)
+		totalData += uint64(len(valueBytes))
 		err = stateDB.SetStateObject(CommitmentObjectType, keyCommitment, valueCommitment)
 		if err != nil {
-			return NewStatedbError(StoreCommitmentError, err)
+			return 0, NewStatedbError(StoreCommitmentError, err)
 		}
 
 		// store commitment index
@@ -87,19 +97,19 @@ func StoreCommitments(stateDB *StateDB, tokenID common.Hash, commitments [][]byt
 		valueCommitmentIndex := keyCommitment
 		err = stateDB.SetStateObject(CommitmentIndexObjectType, keyCommitmentIndex, valueCommitmentIndex)
 		if err != nil {
-			return NewStatedbError(StoreCommitmentIndexError, err)
+			return 0, NewStatedbError(StoreCommitmentIndexError, err)
 		}
 
 		// store commitment length
 		valueCommitmentLength := commitmentLength
 		err = stateDB.SetStateObject(CommitmentLengthObjectType, commitmentLengthKey, valueCommitmentLength)
 		if err != nil {
-			return NewStatedbError(StoreCommitmentLengthError, err)
+			return 0, NewStatedbError(StoreCommitmentLengthError, err)
 		}
 		temp2 := commitmentLength.Uint64() + 1
 		commitmentLength = new(big.Int).SetUint64(temp2)
 	}
-	return nil
+	return totalData, nil
 }
 
 func HasCommitment(stateDB *StateDB, tokenID common.Hash, commitment []byte, shardID byte) (bool, error) {
@@ -261,11 +271,12 @@ func ListCommitmentIndices(stateDB *StateDB, tokenID common.Hash, shardID byte) 
 }
 
 // outputCoins and otas should have the same length
-func StoreOTACoinsAndOnetimeAddresses(stateDB *StateDB, tokenID common.Hash, height uint64, outputCoins [][]byte, otas [][]byte, shardID byte) error {
+func StoreOTACoinsAndOnetimeAddresses(stateDB *StateDB, tokenID common.Hash, height uint64, outputCoins [][]byte, otas [][]byte, shardID byte) (uint64, error) {
+	totalData := uint64(0)
 	otaCoinLengthKey := GenerateOTACoinLengthObjectKey(tokenID, shardID)
 	otaCoinLength, has, err := stateDB.getOTACoinLengthState(otaCoinLengthKey)
 	if err != nil {
-		return NewStatedbError(GetOTACoinLengthError, err)
+		return 0, NewStatedbError(GetOTACoinLengthError, err)
 	}
 	if !has {
 		otaCoinLength.SetBytes([]byte{0})
@@ -280,15 +291,19 @@ func StoreOTACoinsAndOnetimeAddresses(stateDB *StateDB, tokenID common.Hash, hei
 		// Store OnetimeAddress
 		key := GenerateOnetimeAddressObjectKey(tokenID, ota)
 		value := NewOnetimeAddressStateWithValue(tokenID, ota, otaCoinLength)
+		valueBytes, _ := json.Marshal(value)
+		totalData += uint64(len(valueBytes))
 		if err := stateDB.SetStateObject(OnetimeAddressObjectType, key, value); err != nil {
-			return NewStatedbError(StoreOnetimeAddressError, err)
+			return 0, NewStatedbError(StoreOnetimeAddressError, err)
 		}
 
 		// Store OTACoin
 		keyOTACoin := GenerateOTACoinObjectKey(tokenID, shardID, heightBytes, outputCoin)
 		valueOTACoin := NewOTACoinStateWithValue(tokenID, shardID, heightBytes, outputCoin, otaCoinLength)
+		valueBytes, _ = json.Marshal(valueOTACoin)
+		totalData += uint64(len(valueBytes))
 		if err := stateDB.SetStateObject(OTACoinObjectType, keyOTACoin, valueOTACoin); err != nil {
-			return NewStatedbError(StoreOTACoinError, err)
+			return 0, NewStatedbError(StoreOTACoinError, err)
 		}
 		//fmt.Println("Key = ", key[:])
 		//fmt.Println("Value = ", value)
@@ -299,13 +314,15 @@ func StoreOTACoinsAndOnetimeAddresses(stateDB *StateDB, tokenID common.Hash, hei
 		// store otacoin index
 		keyOTAIndex := GenerateOTACoinIndexObjectKey(tokenID, shardID, otaCoinLength)
 		valueOTACoinIndex := keyOTACoin
+		totalData += uint64(len(valueOTACoinIndex.Bytes()))
 		if err := stateDB.SetStateObject(OTACoinIndexObjectType, keyOTAIndex, valueOTACoinIndex); err != nil {
-			return NewStatedbError(StoreOTACoinIndexError, err)
+			return 0, NewStatedbError(StoreOTACoinIndexError, err)
 		}
 
+		totalData += uint64(len(otaCoinLengthKey.Bytes()))
 		// store otacoin length
 		if err := stateDB.SetStateObject(OTACoinLengthObjectType, otaCoinLengthKey, otaCoinLength); err != nil {
-			return NewStatedbError(StoreOTACoinLengthError, err)
+			return 0, NewStatedbError(StoreOTACoinLengthError, err)
 		}
 
 		// Caution: ask Hieu before change these lines
@@ -313,7 +330,7 @@ func StoreOTACoinsAndOnetimeAddresses(stateDB *StateDB, tokenID common.Hash, hei
 		otaCoinLength = new(big.Int).SetUint64(temp2)
 	}
 	//fmt.Println("The database length currently is", otaCoinLength)
-	return nil
+	return totalData, nil
 }
 
 func GetOTACoinsByHeight(stateDB *StateDB, tokenID common.Hash, shardID byte, height uint64) ([][]byte, error) {
@@ -326,16 +343,20 @@ func GetOTACoinsByHeight(stateDB *StateDB, tokenID common.Hash, shardID byte, he
 	return onetimeAddressesBytes, nil
 }
 
-func StoreOutputCoins(stateDB *StateDB, tokenID common.Hash, publicKey []byte, outputCoins [][]byte, shardID byte) error {
+func StoreOutputCoins(stateDB *StateDB, tokenID common.Hash, publicKey []byte, outputCoins [][]byte, shardID byte) (uint64, error) {
+	totalData := uint64(0)
+
 	for _, outputCoin := range outputCoins {
 		key := GenerateOutputCoinObjectKey(tokenID, shardID, publicKey, outputCoin)
 		value := NewOutputCoinStateWithValue(tokenID, shardID, publicKey, outputCoin)
-		err := stateDB.SetStateObject(OutputCoinObjectType, key, value)
+		valueBytes, err := json.Marshal(value)
+		totalData += uint64(len(valueBytes))
+		err = stateDB.SetStateObject(OutputCoinObjectType, key, value)
 		if err != nil {
-			return NewStatedbError(StoreOutputCoinError, err)
+			return 0, NewStatedbError(StoreOutputCoinError, err)
 		}
 	}
-	return nil
+	return totalData, nil
 }
 
 func StoreOccupiedOneTimeAddress(stateDB *StateDB, tokenID common.Hash, ota [32]byte) error {
@@ -370,16 +391,19 @@ func GetOutcoinsByPubkey(stateDB *StateDB, tokenID common.Hash, publicKey []byte
 }
 
 // StoreSNDerivators - store list serialNumbers by shardID
-func StoreSNDerivators(stateDB *StateDB, tokenID common.Hash, snds [][]byte) error {
+func StoreSNDerivators(stateDB *StateDB, tokenID common.Hash, snds [][]byte) (uint64, error) {
+	totalData := uint64(0)
 	for _, snd := range snds {
 		key := GenerateSNDerivatorObjectKey(tokenID, snd)
 		value := NewSNDerivatorStateWithValue(tokenID, snd)
-		err := stateDB.SetStateObject(SNDerivatorObjectType, key, value)
+		valueBytes, err := json.Marshal(value)
+		totalData += uint64(len(valueBytes))
+		err = stateDB.SetStateObject(SNDerivatorObjectType, key, value)
 		if err != nil {
-			return NewStatedbError(StoreSNDerivatorError, err)
+			return 0, NewStatedbError(StoreSNDerivatorError, err)
 		}
 	}
-	return nil
+	return totalData, nil
 }
 
 // HasSNDerivator - Check SnDerivator in list SnDerivators by shardID
