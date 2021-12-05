@@ -114,13 +114,13 @@ func (s *BeaconSyncProcess) stop() {
 //helper function to access map in atomic way
 func (s *BeaconSyncProcess) getBeaconPeerStates() map[string]BeaconPeerState {
 	res := make(chan map[string]BeaconPeerState)
-	s.actionCh <- func() {
-		ps := make(map[string]BeaconPeerState)
-		for k, v := range s.beaconPeerStates {
-			ps[k] = v
-		}
-		res <- ps
-	}
+	// s.actionCh <- func() {
+	// 	ps := make(map[string]BeaconPeerState)
+	// 	for k, v := range s.beaconPeerStates {
+	// 		ps[k] = v
+	// 	}
+	// 	res <- ps
+	// }
 	return <-res
 }
 
@@ -214,7 +214,7 @@ func processBeaconForConfirmmingCrossShard(database incdb.Database, beaconBlock 
 var insertBeaconTimeCache, _ = lru.New(1000)
 
 func (s *BeaconSyncProcess) insertBeaconBlockFromPool() {
-
+	return
 	insertCnt := 0
 	defer func() {
 		if insertCnt > 0 {
