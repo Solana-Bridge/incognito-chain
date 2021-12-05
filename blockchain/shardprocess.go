@@ -190,10 +190,15 @@ func (blockchain *BlockChain) InsertShardBlock(shardBlock *types.ShardBlock, sho
 	e = time.Since(st)
 	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.FETCHBLKSBC, fmt.Sprintf("%v", e.Microseconds()))
 	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.TOTALBEACON, fmt.Sprintf("%v", len(beaconBlocks)))
-	// signingCommittees := []incognitokey.CommitteePublicKey{}
-	// committees := []incognitokey.CommitteePublicKey{}
-	// committees, signingCommittees, err = curView.getSigningCommittees(shardBlock, blockchain)
 
+	signingCommittees := []incognitokey.CommitteePublicKey{}
+	committees := []incognitokey.CommitteePublicKey{}
+	st = time.Now()
+	if shouldValidate {
+		committees, signingCommittees, err = curView.getSigningCommittees(shardBlock, blockchain)
+		e = time.Since(st)
+		blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.GETCOMMITTEE2, fmt.Sprintf("%v", e.Microseconds()))
+	}
 	if err != nil {
 		return err
 	}
@@ -209,18 +214,15 @@ func (blockchain *BlockChain) InsertShardBlock(shardBlock *types.ShardBlock, sho
 				beaconHeight, curView.BeaconHeight)
 			return NewBlockChainError(WrongBlockHeightError, errors.New("Waiting For Beacon Produce Block"))
 		}
-
-		// e = time.Since(st)
-		// blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.GETCOMMITTEE2, fmt.Sprintf("%v", e.Microseconds()))
-	}
-	st = time.Now()
-	signingCommittees := []incognitokey.CommitteePublicKey{}
-	committees := []incognitokey.CommitteePublicKey{}
-	if shouldValidate {
-		committees, signingCommittees, err = curView.getSigningCommittees(shardBlock, blockchain)
-		if err := curView.verifyCommitteeFromBlock(blockchain, shardBlock, committees); err != nil {
-			return err
+		if shouldValidate {
+			if err := curView.verifyCommitteeFromBlock(blockchain, shardBlock, committees); err != nil {
+				return err
+			}
 		}
+
+	}
+
+	if shouldValidate {
 		if err := blockchain.config.ConsensusEngine.ValidateBlockCommitteSig(shardBlock, signingCommittees); err != nil {
 			committeesStr, _ := incognitokey.CommitteeKeyListToString(signingCommittees)
 			Logger.log.Errorf("Validate block %v shard %v with committee %v return error %v", shardBlock.GetHeight(), shardBlock.GetShardID(), committeesStr, err)
