@@ -1273,7 +1273,7 @@ func (blockchain *BlockChain) processStoreShardBlock(
 	newShardState.rewardStateDB.ClearObjects()
 	newShardState.slashStateDB.ClearObjects()
 
-	batchData := blockchain.GetShardChainDatabase(shardID).NewBatch()
+	batchData := blockchain.GetShardChainDatabase(shardID)
 	sRH := ShardRootHash{
 		ConsensusStateDBRootHash:   consensusRootHash,
 		FeatureStateDBRootHash:     featureRootHash,
@@ -1347,9 +1347,9 @@ func (blockchain *BlockChain) processStoreShardBlock(
 		panic("Backup shard view error")
 	}
 
-	if err := batchData.Write(); err != nil {
-		return NewBlockChainError(StoreShardBlockError, err)
-	}
+	// if err := batchData.Write(); err != nil {
+	// 	return NewBlockChainError(StoreShardBlockError, err)
+	// }
 
 	if !config.Config().ForceBackup {
 		return nil
