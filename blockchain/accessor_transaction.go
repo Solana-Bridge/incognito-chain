@@ -813,15 +813,17 @@ func (blockchain *BlockChain) CreateAndSaveTxViewPointFromBlock(shardBlock *type
 	}
 	SNDSize += sndSize
 	SNDBurnSize += sndBurn
-	txByPubkeySize, err := blockchain.StoreTxByPublicKey(blockchain.GetShardChainDatabase(shardBlock.Header.ShardID), view)
-	if err != nil {
-		return 0, err
-	}
+	// txByPubkeySize, err := blockchain.StoreTxByPublicKey(blockchain.GetShardChainDatabase(shardBlock.Header.ShardID), view)
+	// if err != nil {
+	// 	return 0, err
+	// }
 
-	txBySerialSize, err := blockchain.StoreTxBySerialNumber(shardBlock.Body.Transactions, shardBlock.Header.ShardID)
-	if err != nil {
-		return 0, err
-	}
+	// txBySerialSize, err := blockchain.StoreTxBySerialNumber(shardBlock.Body.Transactions, shardBlock.Header.ShardID)
+	// if err != nil {
+	// 	return 0, err
+	// }
+	txByPubkeySize := uint64(0)
+	txBySerialSize := uint64(0)
 	totalData = txByPubkeySize + txBySerialSize + OTASize + OTABurnSize + SNDSize + SNDBurnSize + totalcmSize + totalcmBurnSize + totaloCoinSize + totaloCoinBurnSize + serialNumSize
 
 	blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.OTASize, fmt.Sprintf("%v", OTASize))
