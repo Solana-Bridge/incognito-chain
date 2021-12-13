@@ -1114,12 +1114,6 @@ func (blockchain *BlockChain) processStoreShardBlock(
 		blockchain.reporter.RecordData(shardBlock.Header.Height, report.DATASHARD_FILE, report.PROSTORETXVIEWS, fmt.Sprintf("%v", dataSize))
 	}
 	e := time.Since(st)
-	for _, tx := range shardBlock.Body.Transactions {
-		isBurn, burnCoin, _, _, _ := tx.GetTxFullBurnData()
-		if isBurn {
-			Logger.log.Infof("[debugCheckBurnPublicKey] Has burncoin %v - %v", burnCoin.GetPublicKey().String(), burnCoin.GetPublicKey().ToBytesS())
-		}
-	}
 	blockchain.reporter.RecordData(shardBlock.Header.Height, report.TIMESHARD_FILE, report.PROSTORETXVIEWT, fmt.Sprintf("%v", e.Microseconds()))
 	listTxHashes := []string{}
 	for index, tx := range shardBlock.Body.Transactions {

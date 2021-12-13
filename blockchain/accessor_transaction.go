@@ -980,7 +980,6 @@ func (blockchain *BlockChain) StoreOnetimeAddressesFromTxViewPoint(stateDB *stat
 			if dataSize, err = statedb.StoreOTACoinsAndOnetimeAddresses(stateDB, *view.tokenID, view.height, otaCoinArray, onetimeAddressArray, publicKeyShardID); err != nil {
 				return 0, 0, err
 			}
-			Logger.log.Infof("[debugCheckBurnPublicKey] %v - %v", publicKey, publicKeyBytes)
 			if common.IsPublicKeyBurningAddress(publicKeyBytes) {
 				otaBurnSize += dataSize
 			} else {
@@ -1056,7 +1055,6 @@ func (blockchain *BlockChain) StoreCommitmentsFromTxViewPoint(stateDB *statedb.S
 				}
 			}
 		}
-		Logger.log.Infof("[debugCheckBurnPublicKey] %v - %v", publicKey, publicKeyBytes)
 		if common.IsPublicKeyBurningAddress(publicKeyBytes) {
 			oCoinBurnSize += totalOC
 			commBurnSize += totalCM
