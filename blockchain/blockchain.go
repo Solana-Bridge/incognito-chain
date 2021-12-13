@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/incognitochain/incognito-chain/wallet"
-
 	coinIndexer "github.com/incognitochain/incognito-chain/transaction/coin_indexer"
 
 	"github.com/incognitochain/incognito-chain/blockchain/signaturecounter"
@@ -132,7 +130,7 @@ func (blockchain *BlockChain) Init(config *Config) error {
 		if config.IndexerWorkers > 0 {
 			txDbs := make([]*statedb.StateDB, 0)
 			bestBlocks := make([]uint64, 0)
-			for shard := 0; shard < common.MaxShardNumber; shard++{
+			for shard := 0; shard < common.MaxShardNumber; shard++ {
 				txDbs = append(txDbs, blockchain.GetBestStateTransactionStateDB(byte(shard)))
 				bestBlocks = append(bestBlocks, blockchain.GetBestStateShard(byte(shard)).ShardHeight)
 			}
@@ -425,7 +423,7 @@ func (blockchain BlockChain) RandomCommitmentsAndPublicKeysProcess(numOutputs in
 
 		publicKey := coinDB.GetPublicKey()
 		// we do not use burned coins since they will reduce the privacy level of the transaction.
-		if wallet.IsPublicKeyBurningAddress(publicKey.ToBytesS()) {
+		if common.IsPublicKeyBurningAddress(publicKey.ToBytesS()) {
 			i--
 			continue
 		}

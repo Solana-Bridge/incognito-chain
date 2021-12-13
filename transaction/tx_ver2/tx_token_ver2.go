@@ -8,7 +8,6 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/incognitochain/incognito-chain/privacy/operation"
-	"github.com/incognitochain/incognito-chain/wallet"
 
 	"math"
 	"sort"
@@ -1096,7 +1095,7 @@ func (txToken *TxToken) validateDuplicateOTAsWithCurrentMempool(poolOTAHashH map
 	declaredOTAHash := make(map[common.Hash][32]byte)
 	for _, outputCoin := range txToken.GetTxBase().GetProof().GetOutputCoins() {
 		// Skip coins sent to the burning address
-		if wallet.IsPublicKeyBurningAddress(outputCoin.GetPublicKey().ToBytesS()) {
+		if common.IsPublicKeyBurningAddress(outputCoin.GetPublicKey().ToBytesS()) {
 			continue
 		}
 		hash := common.HashH(outputCoin.GetPublicKey().ToBytesS())
@@ -1109,7 +1108,7 @@ func (txToken *TxToken) validateDuplicateOTAsWithCurrentMempool(poolOTAHashH map
 
 	for _, outputCoin := range txToken.GetTxNormal().GetProof().GetOutputCoins() {
 		// Skip coins sent to the burning address
-		if wallet.IsPublicKeyBurningAddress(outputCoin.GetPublicKey().ToBytesS()) {
+		if common.IsPublicKeyBurningAddress(outputCoin.GetPublicKey().ToBytesS()) {
 			continue
 		}
 		hash := common.HashH(outputCoin.GetPublicKey().ToBytesS())
@@ -1275,7 +1274,7 @@ func (txToken TxToken) ListOTAHashH() []common.Hash {
 	if txToken.GetTxBase().GetProof() != nil {
 		for _, outputCoin := range txToken.GetTxBase().GetProof().GetOutputCoins() {
 			// Discard coins sent to the burning address
-			if wallet.IsPublicKeyBurningAddress(outputCoin.GetPublicKey().ToBytesS()) {
+			if common.IsPublicKeyBurningAddress(outputCoin.GetPublicKey().ToBytesS()) {
 				continue
 			}
 			hash := common.HashH(outputCoin.GetPublicKey().ToBytesS())
@@ -1287,7 +1286,7 @@ func (txToken TxToken) ListOTAHashH() []common.Hash {
 	if txToken.GetTxNormal().GetProof() != nil {
 		for _, outputCoin := range txToken.GetTxNormal().GetProof().GetOutputCoins() {
 			// Discard coins sent to the burning address
-			if wallet.IsPublicKeyBurningAddress(outputCoin.GetPublicKey().ToBytesS()) {
+			if common.IsPublicKeyBurningAddress(outputCoin.GetPublicKey().ToBytesS()) {
 				continue
 			}
 			hash := common.HashH(outputCoin.GetPublicKey().ToBytesS())
