@@ -242,7 +242,16 @@ func (blockchain *BlockChain) InsertShardBlock(shardBlock *types.ShardBlock, sho
 	} else {
 		Logger.log.Infof("SHARD %+v | SKIP Verify Pre Processing, block height %+v with hash %+v", shardID, blockHeight, blockHash)
 	}
-
+	for _, tx := range shardBlock.Body.Transactions {
+		if tx.IsPrivacy() {
+			for _, iCoin := range tx.GetProof().GetInputCoins() {
+				Logger.log.Infof("[TestBurningCoinInICoin] %v %v", iCoin.GetPublicKey().ToBytesS(), iCoin.GetPublicKey().String())
+				if common.IsPublicKeyBurningAddress(iCoin.GetPublicKey().ToBytesS()) {
+					panic("a")
+				}
+			}
+		}
+	}
 	if shouldValidate {
 		// Verify block with previous best state
 		Logger.log.Infof("SHARD %+v | Verify BestState With Shard Block, block height %+v with hash %+v", shardBlock.Header.ShardID, shardBlock.Header.Height, blockHash)
