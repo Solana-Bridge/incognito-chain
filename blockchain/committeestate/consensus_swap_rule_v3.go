@@ -32,6 +32,8 @@ func (s *swapRuleV3) Process(
 		minNumberOfValidators = minCommitteeSize
 	}
 	//get slashed nodes
+	Logger.log.Infof("Swap Rule V3 Process, numberOfFixedValidators %+v, "+
+		"minCommitteeSize %+v, maxCommitteeSize %+v", numberOfFixedValidators, minCommitteeSize, maxCommitteeSize)
 	newCommittees, slashingCommittees :=
 		s.slashingSwapOut(committees, penalty, minNumberOfValidators)
 	lenSlashedCommittees := len(slashingCommittees)
@@ -116,6 +118,8 @@ func (s *swapRuleV3) normalSwapOut(committeesAfterSlashing, substitutes []string
 
 	resCommittees := append(tempCommittees[:minNumberOfValidators], tempCommittees[(minNumberOfValidators+normalSwapOutOffset):]...)
 	resNormalSwapOut = committeesAfterSlashing[minNumberOfValidators : minNumberOfValidators+normalSwapOutOffset]
+
+	Logger.log.Infof("normalSwapOut fixedCommittee %+v, normalSwapOutOffset %+v", len(tempCommittees[:minNumberOfValidators]), normalSwapOutOffset)
 
 	return resCommittees, resNormalSwapOut
 }
