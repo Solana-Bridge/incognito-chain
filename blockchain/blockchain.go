@@ -111,6 +111,9 @@ func (blockchain *BlockChain) Init(config *Config) error {
 		blockchain.config.usingNewPool = true
 	}
 
+	//initialize feature statistic
+	blockchain.InitFeatureStat()
+
 	if err := blockchain.InitChainState(); err != nil {
 		return err
 	}
@@ -1099,7 +1102,35 @@ func (blockchain *BlockChain) AddFinishedSyncValidators(committeePublicKeys []st
 		validCommitteePublicKeys,
 		syncPool,
 		shardID,
+		blockchain.GetBeaconBestState().BeaconHeight,
 	)
+
+}
+
+//receive feature report from other node, add to list feature stat if node is
+func (blockchain *BlockChain) ReceiveFeatureReport(timestamp int, committeePublicKeys []string, signatures [][]byte, features []string) {
+	committeePublicKeyStructs, _ := incognitokey.CommitteeBase58KeyListToStruct(committeePublicKeys)
+	signBytes := []byte{}
+	for _, v := range features {
+		signBytes = append([]byte(wire.CmdMsgFeatureStat), []byte(v)...)
+	}
+	timestampStr := fmt.Sprintf("%v", timestamp)
+	signBytes = append(signBytes, []byte(timestampStr)...)
+	for i, key := range committeePublicKeyStructs {
+		dataSign := signBytes[:]
+		isValid, err := bridgesig.Verify(key.MiningPubKey[common.BridgeConsensus], append(dataSign, []byte(committeePublicKeys[i])...), signatures[i])
+
+		if err != nil {
+			Logger.log.Errorf("Verify feature stat Sign failed, err", committeePublicKeys[i], signatures[i], err)
+			continue
+		}
+		if !isValid {
+			fmt.Println("timestamp", timestamp, timestampStr)
+			Logger.log.Errorf("Verify feature stat Sign failed", committeePublicKeys[i], signatures[i])
+			continue
+		}
+		DefaultFeatureStat.addNode(timestamp, committeePublicKeys[i], features)
+	}
 
 }
 
@@ -1183,4 +1214,11 @@ func (blockchain *BlockChain) GetShardFixedNodes() []incognitokey.CommitteePubli
 	}
 
 	return m
+}
+
+func (blockchain *BlockChain) GetChain(cid int) common.ChainInterface {
+	if cid == -1 {
+		return blockchain.BeaconChain
+	}
+	return blockchain.ShardChain[cid]
 }

@@ -104,6 +104,7 @@ var HttpHandler = map[string]httpHandler{
 	unlockMempool:              (*HttpServer).handleUnlockMempool,
 	handleGetConsensusInfoV3:   (*HttpServer).handleGetConsensusInfoV3,
 	getAutoStakingByHeight:     (*HttpServer).handleGetAutoStakingByHeight,
+	sendFinishSync:             (*HttpServer).handleSendFinishSync,
 	getCommitteeState:          (*HttpServer).handleGetCommitteeState,
 	convertPaymentAddress:      (*HttpServer).handleConvertPaymentAddress,
 	getTotalBlockInEpoch:       (*HttpServer).handleGetTotalBlockInEpoch,
@@ -335,6 +336,9 @@ var HttpHandler = map[string]httpHandler{
 	createAndSendBurningPBSCForDepositToSCRequest: (*HttpServer).handleCreateAndSendBurningPBSCForDepositToSCRequest,
 	getBurnPLGProofForDepositToSC:                 (*HttpServer).handleGetBurnPLGProofForDepositToSC,
 	createAndSendBurningPLGForDepositToSCRequest:  (*HttpServer).handleCreateAndSendBurningPLGForDepositToSCRequest,
+
+	//feature stat
+	getFeatureStats: (*HttpServer).hanldeGetFeatureStats,
 
 	//new pool info
 	getSyncStats:          (*HttpServer).hanldeGetSyncStats,

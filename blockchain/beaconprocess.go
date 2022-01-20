@@ -337,6 +337,10 @@ func (blockchain *BlockChain) verifyPreProcessingBeaconBlockForSigning(curView *
 		Logger.log.Error(err)
 		return NewBlockChainError(GetShardBlocksForBeaconProcessError, fmt.Errorf("Unable to get required shard block for beacon process."))
 	}
+	//dequeueInst, err := filterDequeueInstruction(beaconBlock.Body.Instructions, instruction.OUTDATED_DEQUEUE_REASON)
+	if err != nil {
+		return NewBlockChainError(GetDequeueInstructionError, err)
+	}
 	instructions, _, err := blockchain.GenerateBeaconBlockBody(
 		beaconBlock,
 		curView,
@@ -344,8 +348,15 @@ func (blockchain *BlockChain) verifyPreProcessingBeaconBlockForSigning(curView *
 		allShardBlocks,
 	)
 
-	_, finishSyncInstruction := curView.filterFinishSyncInstruction(beaconBlock.Body.Instructions)
+	finishSyncInstruction, err := curView.filterAndVerifyFinishSyncInstruction(beaconBlock.Body.Instructions)
+	if err != nil {
+		return NewBlockChainError(FinishSyncInstructionError, err)
+	}
+
 	instructions = addFinishInstruction(instructions, finishSyncInstruction)
+
+	enableFeatureInstructions := filterEnableFeatureInstruction(beaconBlock.Body.Instructions)
+	instructions = append(instructions, enableFeatureInstructions...)
 
 	if len(incurredInstructions) != 0 {
 		instructions = append(instructions, incurredInstructions...)
@@ -562,6 +573,24 @@ func (curView *BeaconBestState) updateBeaconBestState(
 			beaconBestState.IsGetRandomNumber = true
 			isFoundRandomInstruction = true
 			Logger.log.Infof("Random number found %d", beaconBestState.CurrentRandomNumber)
+		}
+
+		if inst[0] == instruction.ENABLE_FEATURE {
+			enableFeatures, err := instruction.ValidateAndImportEnableFeatureInstructionFromString(inst)
+			if err != nil {
+				return nil, nil, nil, nil, err
+			}
+			if beaconBestState.TriggeredFeature == nil {
+				beaconBestState.TriggeredFeature = make(map[string]uint64)
+			}
+			for _, feature := range enableFeatures.Features {
+				if common.IndexOfStr(feature, curView.getUntriggerFeature()) != -1 {
+					beaconBestState.TriggeredFeature[feature] = beaconBlock.GetHeight()
+				} else { //cannot find feature in untrigger feature lists(not have or already trigger cases -> unexpected condition)
+					panic("This source code does not contain new feature or already trigger the feature! Feature:" + feature)
+				}
+
+			}
 		}
 	}
 
@@ -1224,21 +1253,30 @@ func (beaconBestState *BeaconBestState) storeCommitteeStateWithCurrentState(
 	if beaconBestState.CommitteeStateVersion() == committeestate.SELF_SWAP_SHARD_VERSION {
 		return nil
 	}
+
 	stakerKeys := committeeChange.StakerKeys()
-	stopAutoStakerKeys := committeeChange.StopAutoStakeKeys()
-	committees := append(stakerKeys, stopAutoStakerKeys...)
-	if len(committees) != 0 {
+	if len(stakerKeys) != 0 {
 		err := statedb.StoreStakerInfo(
 			beaconBestState.consensusStateDB,
-			committees,
+			stakerKeys,
 			beaconBestState.beaconCommitteeState.GetRewardReceiver(),
 			beaconBestState.beaconCommitteeState.GetAutoStaking(),
 			beaconBestState.beaconCommitteeState.GetStakingTx(),
+			beaconBestState.BeaconHeight,
 		)
 		if err != nil {
 			return NewBlockChainError(StoreBeaconBlockError, err)
 		}
 	}
+
+	stopAutoStakerKeys := committeeChange.StopAutoStakeKeys()
+	if len(stopAutoStakerKeys) != 0 {
+		err := statedb.SaveStopAutoStakerInfo(beaconBestState.consensusStateDB, stopAutoStakerKeys, beaconBestState.beaconCommitteeState.GetAutoStaking())
+		if err != nil {
+			return NewBlockChainError(StoreBeaconBlockError, err)
+		}
+	}
+
 	err := statedb.StoreSyncingValidators(beaconBestState.consensusStateDB, committeeChange.SyncingPoolAdded)
 	if err != nil {
 		return err
