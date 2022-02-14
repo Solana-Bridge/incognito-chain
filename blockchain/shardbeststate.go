@@ -738,10 +738,10 @@ func (shardBestState *ShardBestState) CommitTrieToDisk(
 			var (
 				nodes, imgs = transactionTrieDB.Size()
 			)
+
 			Logger.log.Debugf("SHARD %+v | Transaction Trie Cap. Nodes %+v, trieNodeLimit %+v, img %+v, trieImgLimit %+v",
 				shardID, nodes, bc.cacheConfig.trieNodeLimit, imgs, common.StorageSize(4*1024*1024))
 			// all statedb object use the same low-level triedb
-
 			if nodes > bc.cacheConfig.trieNodeLimit || imgs > bc.cacheConfig.trieImgsLimit {
 				transactionTrieDB.Cap(bc.cacheConfig.trieNodeLimit - incdb.IdealBatchSize)
 			}
@@ -753,7 +753,7 @@ func (shardBestState *ShardBestState) CommitTrieToDisk(
 
 			if isFinalizedBlock &&
 				current > pivotBlock.GetHeight() &&
-				current-pivotBlock.GetHeight() >= bc.cacheConfig.blockTriesInMemory+1 {
+				current-pivotBlock.GetHeight() >= bc.cacheConfig.blockTriesInMemory {
 				if err := shardBestState.fullSyncCommitTrieToDisk(
 					bc, batch,
 					newFinalBlock,
@@ -770,7 +770,8 @@ func (shardBestState *ShardBestState) CommitTrieToDisk(
 						bc.cacheConfig.triegc[shardID].Push(oldSRH, number)
 						break
 					}
-					Logger.log.Debugf("SHARD %+v | Try Dereference, current %+v, chosen %+v, deref block %+v", shardID, current, chosen, number)
+					Logger.log.Debugf("SHARD %+v | Try Dereference, current %+v, chosen %+v, deref block %+v",
+						shardID, current, chosen, number)
 					consensusTrieDB.Dereference(oldSRH.(ShardRootHash).ConsensusStateDBRootHash)
 					transactionTrieDB.Dereference(oldSRH.(ShardRootHash).TransactionStateDBRootHash)
 					featureTrieDB.Dereference(oldSRH.(ShardRootHash).FeatureStateDBRootHash)
@@ -779,7 +780,8 @@ func (shardBestState *ShardBestState) CommitTrieToDisk(
 				}
 				postNodes, postImgs := transactionTrieDB.Size()
 				if nodes-postNodes > 0 || imgs-postImgs > 0 {
-					Logger.log.Debugf("SHARD %+v | Success Dereference, current %+v, reduce nodes %+v, reduce imgs %+v", shardID, current, nodes-postNodes, imgs-postImgs)
+					Logger.log.Debugf("SHARD %+v | Success Dereference, current %+v, reduce nodes %+v, reduce imgs %+v",
+						shardID, current, nodes-postNodes, imgs-postImgs)
 				}
 			}
 		}
@@ -788,6 +790,7 @@ func (shardBestState *ShardBestState) CommitTrieToDisk(
 	if err := rawdbv2.StoreShardRootsHash(batch, shardID, shardBestState.BestBlockHash, sRH); err != nil {
 		return NewBlockChainError(StoreShardBlockError, err)
 	}
+
 	return nil
 }
 
