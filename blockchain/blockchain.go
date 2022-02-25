@@ -111,11 +111,7 @@ func NewFlatFileConfig(config *Config) {
 
 func NewCacheConfig(cfg *Config) (CacheConfig, error) {
 
-	cacheConfig := CacheConfig{}
-	cacheConfig.trieJournalCacheSize = config.Param().FullSyncModeParam.TrieJournalCacheSize
-	cacheConfig.blockTrieInMemory = config.Param().FullSyncModeParam.BlockTrieInMemory
-	cacheConfig.trieNodeLimit = config.Param().FullSyncModeParam.TrieNodeLimit
-	cacheConfig.trieImgsLimit = config.Param().FullSyncModeParam.TrieImgsLimit
+	cacheConfig := configCache32GB
 	cacheConfig.triegc = make(map[byte]*prque.Prque)
 	trieJournal := make(map[int]string)
 
